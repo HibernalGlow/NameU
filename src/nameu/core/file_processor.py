@@ -3,15 +3,16 @@
 """
 
 import os
-import logging
+from loguru import logger
 from tqdm import tqdm
 from .constants import ARCHIVE_EXTENSIONS, exclude_keywords, forbidden_artist_keywords
 from .filename_processor import (
     detect_and_decode_filename, get_unique_filename, get_unique_filename_with_samename,
-    format_folder_name, has_artist_name
+    format_folder_name, has_artist_name, convert_sensitive_words_to_pinyin,
+    check_sensitive_word, get_sensitive_words_in_filename, get_unique_filename_with_pinyin_conversion
 )
 
-def process_files_in_directory(directory, artist_name, add_artist_name_enabled=True):
+def process_files_in_directory(directory, artist_name, add_artist_name_enabled=True, convert_sensitive_enabled=True):
     """
     处理目录下的所有文件
     
@@ -19,6 +20,7 @@ def process_files_in_directory(directory, artist_name, add_artist_name_enabled=T
         directory: 目录路径
         artist_name: 画师名称
         add_artist_name_enabled: 是否添加画师名
+        convert_sensitive_enabled: 是否将敏感词转换为拼音
         
     Returns:
         int: 修改的文件数量
@@ -43,6 +45,14 @@ def process_files_in_directory(directory, artist_name, add_artist_name_enabled=T
         # 对所有文件应用格式化，包括排除文件夹中的文件
         new_filename = get_unique_filename(directory, new_filename, artist_name, is_excluded)
         
+        # 检查是否含有敏感词，如果启用了敏感词转换，则将敏感词转换为拼音
+        if convert_sensitive_enabled and check_sensitive_word(new_filename):
+            logger.info(f"文件名含有敏感词，开始转换为拼音: {new_filename}")
+            sensitive_words = get_sensitive_words_in_filename(new_filename)
+            logger.info(f"检测到的敏感词: {', '.join(sensitive_words)}")
+            new_filename = convert_sensitive_words_to_pinyin(new_filename)
+            logger.info(f"转换后的文件名: {new_filename}")
+            
         # 只有在非排除文件夹、启用了画师名添加、不包含禁止关键词时才添加画师名
         if not is_excluded and not has_forbidden and add_artist_name_enabled and artist_name not in exclude_keywords and not has_artist_name(new_filename, artist_name):
             # 将画师名追加到文件名末尾
@@ -81,9 +91,9 @@ def process_files_in_directory(directory, artist_name, add_artist_name_enabled=T
                         rel_new_path = new_file_path
                         
                     log_message = f"重命名: {rel_old_path} -> {rel_new_path}"
-                    logging.info(log_message)
+                    logger.info(log_message)
                 except OSError as e:
-                    logging.error(f"重命名文件失败 {original_file_path}: {str(e)}")
+                    logger.error(f"重命名文件失败 {original_file_path}: {str(e)}")
                     continue
                     
                 # 更新进度条，但不显示文件名（避免重复）
@@ -92,8 +102,15 @@ def process_files_in_directory(directory, artist_name, add_artist_name_enabled=T
 
     return modified_files_count
 
-def process_artist_folder(artist_path, artist_name, add_artist_name_enabled=True):
-    """递归处理画师文件夹及其所有子文件夹"""
+def process_artist_folder(artist_path, artist_name, add_artist_name_enabled=True, convert_sensitive_enabled=True):
+    """递归处理画师文件夹及其所有子文件夹
+    
+    Args:
+        artist_path: 画师文件夹路径
+        artist_name: 画师名称
+        add_artist_name_enabled: 是否添加画师名
+        convert_sensitive_enabled: 是否将敏感词转换为拼音
+    """
     total_modified_files_count = 0
 
     try:
@@ -118,6 +135,15 @@ def process_artist_folder(artist_path, artist_name, add_artist_name_enabled=True
                 # 如果不是一级目录，则应用格式化
                 if root != artist_path:
                     new_name = format_folder_name(dir_name)
+                    
+                    # 检测目录名是否包含敏感词并转换
+                    if convert_sensitive_enabled and check_sensitive_word(new_name):
+                        logger.info(f"目录名含有敏感词，开始转换为拼音: {new_name}")
+                        sensitive_words = get_sensitive_words_in_filename(new_name)
+                        logger.info(f"检测到的敏感词: {', '.join(sensitive_words)}")
+                        new_name = convert_sensitive_words_to_pinyin(new_name)
+                        logger.info(f"转换后的目录名: {new_name}")
+                    
                     if new_name != dir_name:
                         new_path = os.path.join(root, new_name)
                         try:
@@ -129,22 +155,27 @@ def process_artist_folder(artist_path, artist_name, add_artist_name_enabled=True
                             os.utime(new_path, (dir_stat.st_atime, dir_stat.st_mtime))
                             # 更新 dirs 列表中的名称，确保 os.walk 继续正常工作
                             dirs[i] = new_name
-                            logging.info(f"重命名文件夹: {old_path} -> {new_path}")
+                            logger.info(f"重命名文件夹: {old_path} -> {new_path}")
                         except Exception as e:
-                            logging.error(f"重命名文件夹出错 {old_path}: {str(e)}")
+                            logger.error(f"重命名文件夹出错 {old_path}: {str(e)}")
                 
             # 处理当前目录下的所有压缩文件
-            modified_files_count = process_files_in_directory(root, artist_name, add_artist_name_enabled)
+            modified_files_count = process_files_in_directory(root, artist_name, add_artist_name_enabled, convert_sensitive_enabled)
             total_modified_files_count += modified_files_count
     except Exception as e:
-        logging.error(f"处理文件夹出错: {e}")
+        logger.error(f"处理文件夹出错: {e}")
 
     return total_modified_files_count
 
-def process_folders(base_path, add_artist_name_enabled=True):
+def process_folders(base_path, add_artist_name_enabled=True, convert_sensitive_enabled=True):
     """
     处理基础路径下的所有画师文件夹。
     不使用多线程，逐个处理每个画师的文件。
+    
+    Args:
+        base_path: 基础路径
+        add_artist_name_enabled: 是否添加画师名
+        convert_sensitive_enabled: 是否将敏感词转换为拼音
     """
     # 获取所有画师文件夹
     artist_folders = [
@@ -155,6 +186,7 @@ def process_folders(base_path, add_artist_name_enabled=True):
     total_processed = 0
     total_modified = 0
     total_files = 0
+    total_sensitive = 0
 
     # 逐个处理画师文件夹
     for folder in artist_folders:
@@ -163,7 +195,7 @@ def process_folders(base_path, add_artist_name_enabled=True):
             artist_name = get_artist_name(base_path, artist_path)
             
             # 处理画师文件夹中的文件，并获取修改文件数量
-            modified_files_count = process_artist_folder(artist_path, artist_name, add_artist_name_enabled)
+            modified_files_count = process_artist_folder(artist_path, artist_name, add_artist_name_enabled, convert_sensitive_enabled)
             total_processed += 1
             total_modified += modified_files_count
             
@@ -172,7 +204,7 @@ def process_folders(base_path, add_artist_name_enabled=True):
                 total_files += len([f for f in files if f.lower().endswith(ARCHIVE_EXTENSIONS)])
             
         except Exception as e:
-            logging.error(f"处理文件夹 {folder} 出错: {e}")
+            logger.error(f"处理文件夹 {folder} 出错: {e}")
             
     print(f"\n处理完成:")
     print(f"- 总共处理了 {total_processed} 个文件夹")
@@ -199,7 +231,7 @@ def get_artist_name(target_directory, archive_path):
         # 如果不是方括号包围的，加上方括号
         return f"[{artist_name}]"
     except Exception as e:
-        logging.error(f"提取艺术家名称时出错: {e}")
+        logger.error(f"提取艺术家名称时出错: {e}")
         return ""
 
 def record_folder_timestamps(target_directory):
@@ -212,10 +244,10 @@ def record_folder_timestamps(target_directory):
                 folder_stat = os.stat(folder_path)
                 folder_timestamps[folder_path] = (folder_stat.st_atime, folder_stat.st_mtime)
             except FileNotFoundError:
-                logging.warning(f"找不到文件夹: {folder_path}")
+                logger.warning(f"找不到文件夹: {folder_path}")
                 continue
             except Exception as e:
-                logging.error(f"处理文件夹时出错 {folder_path}: {str(e)}")
+                logger.error(f"处理文件夹时出错 {folder_path}: {str(e)}")
                 continue
     
     return folder_timestamps
@@ -227,5 +259,5 @@ def restore_folder_timestamps(folder_timestamps):
             if os.path.exists(folder_path):
                 os.utime(folder_path, (atime, mtime))
         except Exception as e:
-            logging.error(f"恢复文件夹时间戳时出错 {folder_path}: {str(e)}")
+            logger.error(f"恢复文件夹时间戳时出错 {folder_path}: {str(e)}")
             continue

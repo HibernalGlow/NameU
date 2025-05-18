@@ -25,6 +25,7 @@ dependencies = [
     "pangu",
     "pywin32",
     "nanoid",
+    "pypinyin>=0.54.0",
 ]
 
 [project.optional-dependencies]

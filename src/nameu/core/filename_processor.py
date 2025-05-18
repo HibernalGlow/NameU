@@ -4,10 +4,11 @@
 
 import os
 import re
-import logging
+from loguru import logger
 import pangu
 from charset_normalizer import from_bytes
 from .constants import forbidden_artist_keywords
+from .sensitive_word_processor import sensitive_processor
 NAME_LEN = 80
 #         
 
@@ -42,7 +43,7 @@ def detect_and_decode_filename(filename):
                 
         return filename
     except Exception as e:
-        logging.error(f"解码文件名出错: {filename}")
+        logger.error(f"解码文件名出错: {filename}")
         return filename
 
 def has_forbidden_keyword(filename):
@@ -83,12 +84,12 @@ def get_unique_filename_with_samename(directory: str, filename: str, original_pa
     
     # 如果文件不存在，直接返回
     if not os.path.exists(new_path):
-        logging.debug(f"文件不存在，使用原始文件名: {new_filename}")
+        logger.debug(f"文件不存在，使用原始文件名: {new_filename}")
         return new_filename
     
     # 如果是同一个文件，直接返回
     if original_path and os.path.samefile(new_path, original_path):
-        logging.debug(f"文件是自身，保留原始文件名: {new_filename}")
+        logger.debug(f"文件是自身，保留原始文件名: {new_filename}")
         return new_filename
     
     # 标准化当前文件名用于比较
@@ -117,7 +118,7 @@ def get_unique_filename_with_samename(directory: str, filename: str, original_pa
         current_filename = f"{base}[samename_{counter}]{ext}"
         current_path = os.path.join(directory, current_filename)
         if not os.path.exists(current_path):
-            logging.debug(f"检测到文件名重复，生成新文件名: {current_filename}")
+            logger.debug(f"检测到文件名重复，生成新文件名: {current_filename}")
             return current_filename
         counter += 1
 
@@ -197,7 +198,7 @@ def format_folder_name(folder_name):
     try:
         formatted_name = pangu.spacing_text(formatted_name)
     except Exception as e:
-        logging.warning(f"pangu 格式化失败，跳过空格处理: {str(e)}")
+        logger.warning(f"pangu 格式化失败，跳过空格处理: {str(e)}")
     
     # 最后处理多余的空格
     formatted_name = re.sub(r'\s{2,}', ' ', formatted_name)
@@ -457,10 +458,78 @@ def get_unique_filename(directory, filename, artist_name, is_excluded=False):
     # 限制文件名长度为NAME_LEN个字符（不包括扩展名）
     max_length = NAME_LEN - len(ext)
     if len(new_base) > max_length:
-        logging.warning(f"文件名过长，将被截断: {new_base}")
+        logger.warning(f"文件名过长，将被截断: {new_base}")
         new_base = new_base[:max_length]
-        logging.info(f"截断后的文件名: {new_base}")
+        logger.info(f"截断后的文件名: {new_base}")
     
     # 检查文件是否存在，如果存在则添加[samename_n]后缀
     filename = f"{new_base}{ext}"
     return get_unique_filename_with_samename(directory, filename)
+
+def check_sensitive_word(filename):
+    """
+    检查文件名中是否包含敏感词
+    
+    Args:
+        filename: 待检查的文件名
+        
+    Returns:
+        bool: 如果包含敏感词返回True，否则返回False
+    """
+    return sensitive_processor.is_sensitive(filename)
+
+
+def get_sensitive_words_in_filename(filename):
+    """
+    获取文件名中包含的敏感词列表
+    
+    Args:
+        filename: 待检查的文件名
+        
+    Returns:
+        List[str]: 文件名中包含的敏感词列表
+    """
+    return sensitive_processor.get_matching_sensitive_words(filename)
+
+
+def convert_sensitive_words_to_pinyin(filename, style='default'):
+    """
+    将文件名中的敏感词转换为拼音
+    
+    Args:
+        filename: 待处理的文件名
+        style: 拼音风格，可选值：
+              'default': 普通风格，不带声调
+              'tone': 带声调
+              'first_letter': 首字母
+              'initials': 声母
+              'finals': 韵母
+              
+    Returns:
+        str: 处理后的文件名，敏感词已转换为拼音
+    """
+    if not sensitive_processor.is_sensitive(filename):
+        return filename
+    
+    # 处理文件名
+    base, ext = os.path.splitext(filename)
+    converted_base = convert_sensitive_words_to_pinyin(base, style)
+    
+    return f"{converted_base}{ext}"
+
+
+def get_unique_filename_with_pinyin_conversion(directory, filename, style='default'):
+    """
+    将文件名中的敏感词转换为拼音并确保文件名唯一
+    
+    Args:
+        directory: 文件所在目录
+        filename: 原始文件名
+        style: 拼音风格
+        
+    Returns:
+        str: 唯一的、已处理敏感词的文件名
+    """
+    converted_filename = convert_sensitive_words_to_pinyin(filename, style)
+    # 确保文件名唯一
+    return get_unique_filename_with_samename(directory, converted_filename)
