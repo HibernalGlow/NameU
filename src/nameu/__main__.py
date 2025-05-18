@@ -74,7 +74,6 @@ def main():
 
 if __name__ == "__main__":
     # 设置日志
-    setup_logger()
     parser = argparse.ArgumentParser(description='处理文件名重命名')
     parser.add_argument('-c', '--clipboard', action='store_true', help='从剪贴板读取路径')
     parser.add_argument('-m', '--mode', choices=['multi', 'single'], help='处理模式：multi(多人模式)或single(单人模式)')
