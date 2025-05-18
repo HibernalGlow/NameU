@@ -6,7 +6,7 @@ import logging
 from datetime import datetime
 from typing import Dict, Any
 
-from nodes.comic.uuid.json_handler import JsonHandler
+from idu.core.json_handler import JsonHandler
 
 logger = logging.getLogger(__name__)
 
@@ -217,7 +217,7 @@ class UuidRecordManager:
                 json_path = os.path.join(os.path.dirname(yaml_path), f"{os.path.splitext(os.path.basename(yaml_path))[0]}.json")
                 
                 # 转换单个YAML记录
-                from nodes.comic.uuid.json_handler import JsonHandler
+                from idu.core.json_handler import JsonHandler
                 json_data = JsonHandler.convert_yaml_to_json(yaml_data)
                 json_data["uuid"] = os.path.splitext(os.path.basename(yaml_path))[0]
                 

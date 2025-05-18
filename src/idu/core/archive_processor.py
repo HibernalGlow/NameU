@@ -6,10 +6,10 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, Any, Set, List, Tuple
 
-from nodes.comic.uuid.archive_handler import ArchiveHandler
-from nodes.comic.uuid.json_handler import JsonHandler
-from nodes.comic.uuid.path_handler import PathHandler
-from nodes.comic.uuid.uuid_handler import UuidHandler
+from idu.core.archive_handler import ArchiveHandler
+from idu.core.json_handler import JsonHandler
+from idu.core.path_handler import PathHandler
+from idu.core.uuid_handler import UuidHandler
 
 logger = logging.getLogger(__name__)
 

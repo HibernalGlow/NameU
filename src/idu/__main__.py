@@ -16,10 +16,10 @@ sys.path.append(parent_dir)
 
 from textual_preset import create_config_app
 from textual_logger import TextualLoggerManager
-from nodes.comic.uuid.archive_processor import ArchiveProcessor
-from nodes.comic.uuid.uuid_record_manager import UuidRecordManager
-from nodes.comic.uuid.json_handler import JsonHandler
-from nodes.comic.uuid.path_handler import PathHandler
+from idu.core.archive_processor import ArchiveProcessor
+from idu.core.uuid_record_manager import UuidRecordManager
+from idu.core.json_handler import JsonHandler
+from idu.core.path_handler import PathHandler
 from loguru import logger
 import os
 import sys

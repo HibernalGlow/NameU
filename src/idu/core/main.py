@@ -9,10 +9,10 @@ import subprocess
 from pathlib import Path
 from typing import Dict, Any, Optional
 
-from nodes.comic.uuid.archive_processor import ArchiveProcessor
-from nodes.comic.uuid.uuid_record_manager import UuidRecordManager
-from nodes.comic.uuid.json_handler import JsonHandler
-from nodes.comic.uuid.path_handler import PathHandler
+from idu.core.archive_processor import ArchiveProcessor
+from idu.core.uuid_record_manager import UuidRecordManager
+from idu.core.json_handler import JsonHandler
+from idu.core.path_handler import PathHandler
 
 logger = logging.getLogger(__name__)
 

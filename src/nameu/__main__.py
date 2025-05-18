@@ -8,10 +8,10 @@ from colorama import init, Fore, Style
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 # 导入自定义模块
-from nodes.tui.preset.textual_preset import create_config_app
-from nodes.comic.name.logger_config import setup_logger
-from nodes.comic.name.constants import ARCHIVE_EXTENSIONS
-from nodes.comic.name.file_processor import (
+from textual_preset import create_config_app
+from nameu.core.logger_config import setup_logger
+from nameu.core.constants import ARCHIVE_EXTENSIONS
+from nameu.core.file_processor import (
     process_artist_folder, process_folders, record_folder_timestamps,
     restore_folder_timestamps, get_artist_name
 )

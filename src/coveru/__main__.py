@@ -135,7 +135,49 @@ def process_folder(root_folder):
         else:
             print(f"{sub_folder_path} 不是文件夹，跳过")
 
-# 使用示例
+def main():
+    """
+    主函数，提供命令行界面，支持以下功能：
+    1. 处理单个文件夹
+    2. 批量处理多个文件夹
+    3. 提供可选的命令行参数支持
+    """
+    import argparse
+    
+    # 创建命令行参数解析器
+    parser = argparse.ArgumentParser(description='处理文件夹中的ZIP文件并提取封面图片')
+    parser.add_argument('folders', nargs='*', help='要处理的文件夹路径，可以提供多个')
+    parser.add_argument('-r', '--recursive', action='store_true', help='是否递归处理子文件夹')
+    parser.add_argument('--no-convert', action='store_true', help='不将图片转换为JXL格式')
+
+    args = parser.parse_args()
+    
+    # 如果没有提供文件夹路径，则提示用户输入
+    if not args.folders:
+        folder_input = input("请输入需要处理的根文件夹路径（多个路径用分号分隔）: ")
+        folders = [f.strip() for f in folder_input.split(';') if f.strip()]
+    else:
+        folders = args.folders
+    
+    # 检查提供的文件夹是否存在
+    valid_folders = []
+    for folder in folders:
+        if not os.path.isdir(folder):
+            print(f"错误: 文件夹 '{folder}' 不存在或不是一个目录")
+        else:
+            valid_folders.append(folder)
+    
+    if not valid_folders:
+        print("没有有效的文件夹路径，程序退出")
+        return
+    
+    # 处理每个有效的文件夹
+    for folder in valid_folders:
+        print(f"\n开始处理文件夹: {folder}")
+        process_folder(folder)
+        print(f"完成处理文件夹: {folder}")
+    
+    print("\n所有文件夹处理完毕！")
+
 if __name__ == "__main__":
-    root_folder = input("请输入需要处理的根文件夹路径: ")
-    process_folder(root_folder)
+    main()

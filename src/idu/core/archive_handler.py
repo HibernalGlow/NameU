@@ -6,8 +6,8 @@ import zipfile
 from typing import Dict, Any, Optional, List, Tuple
 
 # 导入本地模块
-from nodes.comic.uuid.json_handler import JsonHandler
-from nodes.comic.uuid.uuid_handler import UuidHandler
+from idu.core.json_handler import JsonHandler
+from idu.core.uuid_handler import UuidHandler
 
 logger = logging.getLogger(__name__)
 
