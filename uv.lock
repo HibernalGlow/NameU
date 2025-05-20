@@ -106,9 +106,9 @@ wheels = [
 ]
 
 [[package]]
-name = "imagefliter"
+name = "ImageFilter"
 version = "1.0.0"
-source = { git = "https://github.com/HibernalGlow/ImageFliter.git#9bee12d0377efc535ac890a8fb0114c51d8a19cd" }
+source = { git = "https://github.com/HibernalGlow/ImageFilter.git#9bee12d0377efc535ac890a8fb0114c51d8a19cd" }
 dependencies = [
     { name = "loguru" },
     { name = "numpy" },
@@ -244,7 +244,7 @@ name = "nameu"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "imagefliter" },
+    { name = "ImageFilter" },
     { name = "loguru" },
     { name = "nanoid" },
     { name = "orjson" },
@@ -269,7 +269,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "black", marker = "extra == 'dev'", specifier = ">=23.0.0" },
-    { name = "imagefliter", git = "https://github.com/HibernalGlow/ImageFliter.git" },
+    { name = "ImageFilter", git = "https://github.com/HibernalGlow/ImageFilter.git" },
     { name = "isort", marker = "extra == 'dev'", specifier = ">=5.12.0" },
     { name = "loguru", specifier = ">=0.7.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.0.0" },

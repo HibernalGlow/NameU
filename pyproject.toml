@@ -3,7 +3,7 @@ name = "nameu"
 version = "0.1.0"
 description = "名称处理工具集"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.10"
 authors = [
     {name = "HibernalGlow", email = "your.email@example.com"}
 ]
@@ -14,7 +14,7 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "ImageFliter @ git+https://github.com/HibernalGlow/ImageFliter.git",
+    "ImageFilter @ git+https://github.com/HibernalGlow/ImageFilter.git",
     "loguru>=0.7.0",
     "send2trash>=1.8.0",
     "TextualLog @ git+https://github.com/HibernalGlow/TextualLog.git",

@@ -30,24 +30,30 @@ def setup_logger(app_name="app", project_root=None, console_output=True):
     
     # 清除默认处理器
     logger.remove()
-    
-    # 自定义日志格式处理函数
+      # 自定义日志格式处理函数
     def formatter(record):
-        # 获取消息内容
-        message = record["message"]
-        # 根据消息内容做特殊处理
-        if "重命名:" in message:
-            return process_rename_message(message)
-        elif "出错" in message.lower() or "error" in message.lower():
-            return process_error_message(message)
-        elif record["level"].name == "INFO":
-            return f"<green>✅ {message}</green>"
-        elif record["level"].name == "WARNING":
-            return f"<yellow>⚠️ {message}</yellow>"
-        elif record["level"].name == "ERROR":
-            return f"<red>❌ {message}</red>"
-        else:
-            return f"<white>ℹ️ {message}</white>"
+        try:
+            # 获取消息内容
+            message = record["message"]
+            # 根据消息内容做特殊处理
+            if "重命名:" in message:
+                return process_rename_message(message)
+            elif "出错" in message.lower() or "error" in message.lower():
+                return process_error_message(message)
+            elif record["level"].name == "INFO":
+                return f"<green>✅ {message}</green>"
+            elif record["level"].name == "WARNING":
+                return f"<yellow>⚠️ {message}</yellow>"
+            elif record["level"].name == "ERROR":
+                return f"<red>❌ {message}</red>"
+            else:
+                return f"<white>ℹ️ {message}</white>"
+        except Exception as e:
+            # 如果格式化过程中出现任何错误，返回一个安全的字符串
+            try:
+                return f"<white>ℹ️ {str(message)[:100]}...</white>"
+            except:
+                return "<white>ℹ️ [日志格式化错误]</white>"
       # 有条件地添加控制台处理器
     if console_output:
         logger.add(
@@ -106,7 +112,11 @@ def process_rename_message(message):
     
     # 提取原始路径和新路径
     try:
-        old_path, new_path = message.split(" -> ")
+        parts = message.split(" -> ", 1)  # 最多分割一次，以防文件名中包含 " -> "
+        if len(parts) != 2:
+            return f"<cyan>🔄 {message}</cyan>"
+            
+        old_path, new_path = parts
         old_path = old_path.replace("重命名: ", "")
         
         # 分离路径和文件名
@@ -117,11 +127,11 @@ def process_rename_message(message):
         if old_dir == new_dir:
             return highlight_diff(old_name, new_name)
         else:
-            # 如果路径不同，分别显示旧路径和新路径
-            return f"🔄 <s><red>{old_path}</red></s> -> <b><green>{new_path}</green></b>"
-    except Exception:
-        # 如果解析失败，返回原始消息
-        return f"<cyan>🔄 {message}</cyan>"
+            # 如果路径不同，使用更安全的格式
+            return f"🔄 从 '{old_path}' 到 '{new_path}'"
+    except Exception as e:
+        # 如果解析失败，返回安全的原始消息，避免格式化问题
+        return f"<cyan>🔄 重命名操作已完成</cyan>"
 
 
 def process_error_message(message):
@@ -162,22 +172,16 @@ def highlight_diff(old_str, new_str):
     Returns:
         str: 包含高亮差异的Markdown格式字符串
     """
-    d = Differ()
-    diff = list(d.compare(old_str, new_str))
-    
-    colored = []
-    for elem in diff:
-        if elem.startswith('-'):
-            # 删除部分：红色 + 删除线
-            colored.append(f"<s><red>{elem[2:]}</red></s>")
-        elif elem.startswith('+'):
-            # 新增部分：绿色 + 加粗
-            colored.append(f"<b><green>{elem[2:]}</green></b>")
-        elif elem.startswith(' '):
-            # 未修改部分：原样显示
-            colored.append(elem[2:])
-    
-    return '🔄 ' + ''.join(colored)
+    try:
+        # 简化处理方式，不再逐字符比较
+        if old_str == new_str:
+            return f"🔄 {old_str}"
+            
+        # 使用更安全的方式展示变化
+        return f"🔄 <s><red>{old_str}</red></s> → <b><green>{new_str}</green></b>"
+    except Exception as e:
+        # 如果出现异常，返回一个安全的字符串
+        return f"🔄 从 '{old_str}' 重命名为 '{new_str}'"
 
 
 if __name__ == "__main__":
