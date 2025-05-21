@@ -513,8 +513,17 @@ def convert_sensitive_words_to_pinyin(filename, style='default'):
     
     # 处理文件名
     base, ext = os.path.splitext(filename)
-    converted_base = convert_sensitive_words_to_pinyin(base, style)
     
+    # 获取所有敏感词
+    sensitive_words = sensitive_processor.get_matching_sensitive_words(base)
+      # 逐个替换敏感词为拼音
+    converted_base = base
+    for word in sensitive_words:
+        pinyin = sensitive_processor.convert_to_pinyin(word, style)
+        logger.debug(f"将敏感词 '{word}' 转换为拼音 '{pinyin}'")
+        converted_base = converted_base.replace(word, pinyin)
+    
+    logger.debug(f"敏感词转换结果: '{base}' -> '{converted_base}'")
     return f"{converted_base}{ext}"
 
 
@@ -530,6 +539,8 @@ def get_unique_filename_with_pinyin_conversion(directory, filename, style='defau
     Returns:
         str: 唯一的、已处理敏感词的文件名
     """
+    # 转换敏感词为拼音
     converted_filename = convert_sensitive_words_to_pinyin(filename, style)
+    
     # 确保文件名唯一
     return get_unique_filename_with_samename(directory, converted_filename)

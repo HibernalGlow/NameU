@@ -110,6 +110,9 @@ def process_rename_message(message):
     
     _last_rename_message = message
     
+    # 转义可能在文件名中出现的花括号 {} - 防止被当作格式化占位符处理
+    message = message.replace("{", "{{").replace("}", "}}")
+    
     # 提取原始路径和新路径
     try:
         parts = message.split(" -> ", 1)  # 最多分割一次，以防文件名中包含 " -> "
@@ -173,12 +176,16 @@ def highlight_diff(old_str, new_str):
         str: 包含高亮差异的Markdown格式字符串
     """
     try:
+        # 转义花括号，防止格式化错误
+        old_str_escaped = old_str.replace("{", "{{").replace("}", "}}")
+        new_str_escaped = new_str.replace("{", "{{").replace("}", "}}")
+        
         # 简化处理方式，不再逐字符比较
         if old_str == new_str:
-            return f"🔄 {old_str}"
+            return f"🔄 {old_str_escaped}"
             
         # 使用更安全的方式展示变化
-        return f"🔄 <s><red>{old_str}</red></s> → <b><green>{new_str}</green></b>"
+        return f"🔄 <s><red>{old_str_escaped}</red></s> → <b><green>{new_str_escaped}</green></b>"
     except Exception as e:
         # 如果出现异常，返回一个安全的字符串
         return f"🔄 从 '{old_str}' 重命名为 '{new_str}'"
