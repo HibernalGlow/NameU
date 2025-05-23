@@ -297,15 +297,8 @@ def rename_archives(target_directory, uuid_directory, cutoff_time=None, use_earl
     logger.info(f"重命名: {stats['renamed']} 个文件")
     logger.info(f"跳过: {stats['skipped']} 个文件")
     logger.info(f"错误: {stats['errors']} 个文件")
-
-if __name__ == '__main__':
-    # 配置日志
-    config = {
-        'script_name': 'restore_name',
-        'console_enabled': True
-    }
-    logger, config_info = setup_logger(config)
-    
+def main():
+    # 设置日志
     target_directory = input("请输入压缩包所在目录路径: ").strip().strip('"')
     uuid_directory = r'E:\1BACKUP\ehv\uuid'
     
@@ -328,3 +321,8 @@ if __name__ == '__main__':
     logger.info(f"JSON文件目录: {uuid_directory}")
     
     rename_archives(target_directory, uuid_directory, cutoff_time, use_earliest)
+    
+if __name__ == '__main__':
+    main()
+
+    

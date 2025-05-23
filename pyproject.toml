@@ -1,6 +1,6 @@
 [project]
 name = "nameu"
-version = "0.1.0"
+version = "0.1.2"
 description = "名称处理工具集"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -14,7 +14,6 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "ImageFilter @ git+https://github.com/HibernalGlow/ImageFilter.git",
     "loguru>=0.7.0",
     "send2trash>=1.8.0",
     "TextualLog @ git+https://github.com/HibernalGlow/TextualLog.git",
@@ -42,7 +41,7 @@ Issues = "https://github.com/YourUsername/nameu/issues"
 
 [project.scripts]
 nameu = "nameu.__main__:main"
-namer = "namer.utils.namer:main"
+namer = "nameu.utils.namer:main"
 coveru = "coveru.__main__:main"
 idu = "idu.__main__:main"
 [build-system]
