@@ -42,6 +42,7 @@ Issues = "https://github.com/YourUsername/nameu/issues"
 
 [project.scripts]
 nameu = "nameu.__main__:main"
+namer = "namer.utils.namer:main"
 coveru = "coveru.__main__:main"
 idu = "idu.__main__:main"
 [build-system]

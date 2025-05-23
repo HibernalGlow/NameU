@@ -32,7 +32,7 @@ def main():
         ("多画师模式 - 处理整个目录", "multi_mode", "--mode multi"),
         ("单画师模式 - 只处理单个画师的文件夹", "single_mode", "--mode single"),
         ("从剪贴板读取路径", "clipboard", "-c", True),  # 默认开启
-        ("敏感词转拼音 - 将文件名中的敏感词转换为拼音", "convert_sensitive", "--convert-sensitive", True),  # 默认开启
+        ("敏感词转拼音 - 将文件名中的敏感词转换为拼音", "convert_sensitive", "--convert-sensitive", False),  # 默认开启
     ]
 
     # 定义输入框选项
@@ -42,17 +42,17 @@ def main():
     preset_configs = {
         "标准多画师": {
             "description": "标准多画师模式，会添加画师名后缀",
-            "checkbox_options": ["keep_timestamp", "multi_mode", "clipboard", "convert_sensitive"],
+            "checkbox_options": ["keep_timestamp", "multi_mode", "clipboard"],
             "input_values": {"path": ""}
         },
         "标准单画师": {
             "description": "标准单画师模式，会添加画师名后缀", 
-            "checkbox_options": ["keep_timestamp", "single_mode", "clipboard", "convert_sensitive"],
+            "checkbox_options": ["keep_timestamp", "single_mode", "clipboard"],
             "input_values": {"path": ""}
         },
         "无画师模式": {
             "description": "不添加画师名后缀的重命名模式",
-            "checkbox_options": ["no_artist", "keep_timestamp", "clipboard", "convert_sensitive"],
+            "checkbox_options": ["no_artist", "keep_timestamp", "clipboard"],
             "input_values": {"path": ""}
         },
         "无敏感词转换": {
@@ -81,7 +81,7 @@ if __name__ == "__main__":
     parser.add_argument('--no-artist', action='store_true', help='无画师模式 - 不添加画师名后缀')
     parser.add_argument('--keep-timestamp', action='store_true', help='保持文件的修改时间')
     parser.add_argument('--convert-sensitive', action='store_true', default=True, help='将敏感词转换为拼音')
-    parser.add_argument('--no-convert-sensitive', dest='convert_sensitive', action='store_false', help='不转换敏感词')
+    parser.add_argument('--no-convert-sensitive', dest='convert_sensitive', action='store_false', help='不转换敏感词',default=False)
     args = parser.parse_args()
 
     if len(sys.argv) == 1:  # 如果没有命令行参数，启动TUI界面
@@ -106,8 +106,8 @@ if __name__ == "__main__":
     print(f"\n{Fore.CYAN}当前模式: {'多人模式' if args.mode == 'multi' else '单人模式'}{Style.RESET_ALL}")
       # 根据命令行参数设置全局变量
     add_artist_name_enabled = not args.no_artist
-    convert_sensitive_enabled = args.convert_sensitive
-
+    # convert_sensitive_enabled = args.convert_sensitive
+    convert_sensitive_enabled = False
     # 显示当前功能设置状态
     print(f"{Fore.CYAN}功能设置:{Style.RESET_ALL}")
     print(f"- 添加画师名: {'禁用' if args.no_artist else '启用'}")
