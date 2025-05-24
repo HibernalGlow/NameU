@@ -171,7 +171,8 @@ def process_artist_folders(root_path):
     except Exception as e:
         logger.error(f"处理根目录 {root_path} 时出错: {str(e)}")
 
-if __name__ == "__main__":
+
+def main():
     parser = argparse.ArgumentParser(description='修复文件夹序号连续性')
     parser.add_argument('paths', nargs='*', help='要处理的路径列表')
     parser.add_argument('-c', '--clipboard', action='store_true', help='从剪贴板读取路径')
@@ -206,3 +207,5 @@ if __name__ == "__main__":
     for path in paths:
         logger.info(f"处理路径: {path}")
         process_artist_folders(path)
+if __name__ == "__main__":
+    main()
