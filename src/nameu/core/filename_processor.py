@@ -9,7 +9,7 @@ import pangu
 from charset_normalizer import from_bytes
 from .constants import forbidden_artist_keywords
 from .sensitive_word_processor import sensitive_processor
-from .pattern_config import get_patterns
+from .config import get_patterns
 from nameu.type.file_type_detector import get_file_type
 NAME_LEN = 80
 #         
@@ -174,25 +174,26 @@ def append_artist_name(filename, artist_name):
 
 def format_folder_name(folder_name):
     """格式化文件夹名称"""
-    # 获取文件夹类型（可用'folder'，如需更细分可自定义）
     file_type = 'folder'
-    # 动态获取 basic_patterns
     basic_patterns, is_pair = get_patterns('basic_patterns', file_type)
     formatted_name = folder_name
     if is_pair:
         for pattern, replacement in basic_patterns:
-            formatted_name = re.sub(pattern, replacement, formatted_name)
+            new_name = re.sub(pattern, replacement, formatted_name)
+            if new_name != formatted_name:
+                logger.info(f"[格式匹配][文件夹] '{formatted_name}' -> '{new_name}'  (pattern: {pattern}, replacement: {replacement})")
+            formatted_name = new_name
     else:
         for pattern in basic_patterns:
-            formatted_name = re.sub(pattern, '', formatted_name)
-    # 删除重复的方括号内容
+            new_name = re.sub(pattern, '', formatted_name)
+            if new_name != formatted_name:
+                logger.info(f"[格式匹配][文件夹] '{formatted_name}' -> '{new_name}'  (pattern: {pattern})")
+            formatted_name = new_name
     formatted_name = remove_duplicate_brackets(formatted_name)
-    # 然后使用 pangu 处理文字和数字之间的空格
     try:
         formatted_name = pangu.spacing_text(formatted_name)
     except Exception as e:
         logger.warning(f"pangu 格式化失败，跳过空格处理: {str(e)}")
-    # 最后处理多余的空格
     formatted_name = re.sub(r'\s{2,}', ' ', formatted_name)
     return formatted_name.strip()
 
@@ -223,22 +224,34 @@ def get_unique_filename(directory, filename, artist_name, is_excluded=False):
 
     # 动态获取文件类型
     file_type = get_file_type(filename)
-    # 应用 basic_patterns
+    # basic_patterns 日志
     basic_patterns, is_pair = get_patterns('basic_patterns', file_type)
     if is_pair:
         for pattern, replacement in basic_patterns:
-            base = re.sub(pattern, replacement, base)
+            new_base = re.sub(pattern, replacement, base)
+            if new_base != base:
+                logger.info(f"[格式匹配][basic] '{base}' -> '{new_base}'  (pattern: {pattern}, replacement: {replacement})")
+            base = new_base
     else:
         for pattern in basic_patterns:
-            base = re.sub(pattern, '', base)
-    # 应用 advanced_patterns
+            new_base = re.sub(pattern, '', base)
+            if new_base != base:
+                logger.info(f"[格式匹配][basic] '{base}' -> '{new_base}'  (pattern: {pattern})")
+            base = new_base
+    # advanced_patterns 日志
     advanced_patterns, is_pair = get_patterns('advanced_patterns', file_type)
     if is_pair:
         for pattern, replacement in advanced_patterns:
-            base = re.sub(pattern, replacement, base)
+            new_base = re.sub(pattern, replacement, base)
+            if new_base != base:
+                logger.info(f"[格式匹配][advanced] '{base}' -> '{new_base}'  (pattern: {pattern}, replacement: {replacement})")
+            base = new_base
     else:
         for pattern in advanced_patterns:
-            base = re.sub(pattern, '', base)
+            new_base = re.sub(pattern, '', base)
+            if new_base != base:
+                logger.info(f"[格式匹配][advanced] '{base}' -> '{new_base}'  (pattern: {pattern})")
+            base = new_base
     # prefix_priority
     prefix_priority, _ = get_patterns('prefix_priority', file_type)
     # suffix_keywords

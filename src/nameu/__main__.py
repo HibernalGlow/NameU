@@ -24,7 +24,7 @@ init()
 add_artist_name_enabled = True
 logger, config_info = setup_logger(app_name="nameu", console_output=True)
 
-def tui():
+def tui(parser):
     """主函数"""
     # 定义复选框选项
     checkbox_options = [
@@ -64,16 +64,14 @@ def tui():
         "只处理视频": {
             "description": "只处理视频文件，应用视频专属命名规则",
             "checkbox_options": ["keep_timestamp", "multi_mode", "clipboard"],
-            "input_values": {"path": ""},
-            "filter_options": {"--type": "video"}
+            "input_values": {"path": "", "include": "", "type": "video"},
         }
     }
 
     # 创建并运行配置界面
     app = create_config_app(
         program=__file__,
-        checkbox_options=checkbox_options,
-        input_options=input_options,
+        parser=parser,
         title="自动唯一文件名工具",
         preset_configs=preset_configs
     )
@@ -95,7 +93,7 @@ def main():
     args = parser.parse_args()
 
     if len(sys.argv) == 1:  # 如果没有命令行参数，启动TUI界面
-        tui()
+        tui(parser)
         sys.exit(0)
 
     # 处理路径参数
