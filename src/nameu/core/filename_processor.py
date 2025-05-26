@@ -9,6 +9,8 @@ import pangu
 from charset_normalizer import from_bytes
 from .constants import forbidden_artist_keywords
 from .sensitive_word_processor import sensitive_processor
+from .pattern_config import get_patterns
+from nameu.type.file_type_detector import get_file_type
 NAME_LEN = 80
 #         
 
@@ -172,37 +174,26 @@ def append_artist_name(filename, artist_name):
 
 def format_folder_name(folder_name):
     """格式化文件夹名称"""
-    # 先进行基本的替换规则
-    patterns_and_replacements = [
-        (r'\[\#s\]', '#'),
-        (r'（', '('),
-        (r'）', ')'),
-        (r'【', '['),
-        (r'】', ']'),
-        (r'［', '['),
-        (r'］', ']'),
-        (r'｛', '{'),
-        (r'｝', '}'),
-        (r'｜', '|'),
-        (r'～', '~'),
-    ]
-    
+    # 获取文件夹类型（可用'folder'，如需更细分可自定义）
+    file_type = 'folder'
+    # 动态获取 basic_patterns
+    basic_patterns, is_pair = get_patterns('basic_patterns', file_type)
     formatted_name = folder_name
-    for pattern, replacement in patterns_and_replacements:
-        formatted_name = re.sub(pattern, replacement, formatted_name)
-    
+    if is_pair:
+        for pattern, replacement in basic_patterns:
+            formatted_name = re.sub(pattern, replacement, formatted_name)
+    else:
+        for pattern in basic_patterns:
+            formatted_name = re.sub(pattern, '', formatted_name)
     # 删除重复的方括号内容
     formatted_name = remove_duplicate_brackets(formatted_name)
-    
     # 然后使用 pangu 处理文字和数字之间的空格
     try:
         formatted_name = pangu.spacing_text(formatted_name)
     except Exception as e:
         logger.warning(f"pangu 格式化失败，跳过空格处理: {str(e)}")
-    
     # 最后处理多余的空格
     formatted_name = re.sub(r'\s{2,}', ' ', formatted_name)
-    
     return formatted_name.strip()
 
 def get_unique_filename(directory, filename, artist_name, is_excluded=False):
@@ -230,163 +221,48 @@ def get_unique_filename(directory, filename, artist_name, is_excluded=False):
         filename = f"{base}{ext}"
         return get_unique_filename_with_samename(directory, filename)
 
-    # 修改正则替换模式，更谨慎地处理日文字符
-    basic_patterns = [
-        # 统一处理各种括号为英文半角括号
-        (r'（', '('),
-        (r'）', ')'),
-        (r'\uff08', '('),  # 全角左括号的 Unicode
-        (r'\uff09', ')'),  # 全角右括号的 Unicode
-        # 统一处理各种方括号为英文半角方括号
-        (r'【', '['),
-        (r'】', ']'),
-        (r'［', '['),
-        (r'］', ']'),
-        (r'\uff3b', '['),  # 全角左方括号的 Unicode
-        (r'\uff3d', ']'),  # 全角右方括号的 Unicode
-        # 统一处理花括号
-        (r'｛', '{'),
-        (r'｝', '}'),
-        (r'〈', '<'),
-        (r'〉', '>'),
-        # 清理空括号和空方框（包括可能的空格）
-        (r'\(\s*\)\s*', r' '),  # 清理空括号
-        (r'\[\s*\]\s*', r' '),  # 清理空方框
-        (r'\{\s*\}\s*', r' '),  # 清理空花括号
-        (r'\<\s*\>\s*', r' '),  # 清理空尖括号
-        # 只处理两个及以上的连续空格
-        (r'\s{2,}', r' '),
-        # 修改可能导致问题的替换模式
-        (r'【(?![々〇〈〉《》「」『』【】〔〕］［])([^【】]+)】', r'[\1]'),
-        (r'（(?![々〇〈〉《》「」『』【】〔〕］［])([^（）]+)）', r'(\1)'),
-        (r'【(.*?)】', r'[\1]'),
-        (r'（(.*?)）', r'(\1)'),
-        (r'［(.*?)］', r'[\1]'),
-        (r'〈(.*?)〉', r'<\1>'),
-        (r'｛(.*?)｝', r'{\1}'),
-        # 其他清理规则
-        (r'(单行本)', r''),
-        (r'(同人志)', r''),
-        (r'\{(.*?)\}', r''),
-        (r'\{\d+w\}', r''),
-        (r'\{\d+p\}', r''),
-        (r'\{\d+px\}', r''),
-        (r'\(\d+px\)', r''),
-        (r'\{\d+de\}', r''),
-        (r'\[cbr\]', r''),
-        (r'\{\d+\.?\d*[kKwW]?@PX\}', r''),  # 匹配如 {1.8k@PX}、{215@PX}
-        (r'\{\d+\.?\d*[kKwW]?@WD\}', r''),  # 匹配如 {1800w@WD}、{1.8k@WD}
-        (r'\{\d+%?@DE\}', r''),  
-        # 匹配如 {85%@DE}
-        (r'\[multi\]', r''),
-        (r'\[trash\]', r''),
-        # 清理samename标记，以便重新添加
-        (r'\[multi\-main\]', r''),
-        (r'\[samename_\d+\]', r''),
-        # (r'\d{5,6}\.', r''),
-    ]
-    
-    advanced_patterns = [
-        (r'Digital', 'DL'),
-        # 标准化日期格式
-        (r'\[(\d{4})\.(\d{2})\]', r'(\1.\2)'),
-        (r'\((\d{4})年(\d{1,2})月\)', r'(\1.\2)'),
-        # 标准化C编号格式
-        (r'Fate.*Grand.*Order', 'FGO'),
-        (r'艦隊これくしょん.*-.*艦これ.*-', '舰C'),
-        (r'PIXIV FANBOX', 'FANBOX'),
-        (r'\((MJK[^\)]+)\)', ''),
-        (r'^\) ', ''),
-        (r'ibm5100', ''),
-        (r'20(\d+)年(\d+)月号', r'\1-\2'),
-        (r'(单行本)', r''),
-        (r'^／\s{1,6}', ''),
-    ]
-
-    prefix_priority = [
-        # 日期格式优先 方便排序
-        r'(\d{4}\.\d{2})',  # 标准化后的年月格式
-        r'(\d{4}年\d{1,2}月)',  # 日文年月格式
-        r'(\d{2}\.\d{2})',
-        r'(?<!\d)(\d{4})(?!\d)',
-        r'(\d{2}\-\d{2})',
-        # 优先处理同人志编号
-        r'(C\d+)',
-        r'(COMIC1☆\d+)',
-        r'(例大祭\d*)',
-        r'(FF\d+)',
-        # 日期格式
-        # 其他格式
-        r'([^()]*)COMIC[^()]*',
-        r'([^()]*)快楽天[^()]*',
-        r'([^()]*)Comic[^()]*',
-        r'([^()]*)VOL[^()]*',
-        r'([^()]*)永遠娘[^()]*',
-        r'(.*?\d+.*?)',
-    ]
-
-    suffix_keywords = [
-        r'漢化',                # 日语的 "汉"
-        r'汉化',              # 汉化
-        r'翻訳',              # 翻译
-        r'无修',              # 无修正
-        r'無修',              # 日语的 "无修正"
-        r'DL版',              # 下载版
-        r'掃圖',              # 扫图
-        r'翻譯',              # 翻译 (繁体字)
-        r'Digital',           # 数字版
-        r'製作',              # 制作
-        r'重嵌',              # 重新嵌入
-        r'CG集',              # CG 集合
-        r'掃', 
-        r'制作', 
-        r'排序 ', 
-        r'截止',
-        r'去码',
-        
-        r'\d+[GMK]B',         # 文件大小信息（如123MB、45KB等）
-    ]
-
-    # 应用基本替换规则
-    for pattern, replacement in basic_patterns:
-        base = re.sub(pattern, replacement, base)
-
-    # 对非排除文件夹应用高级替换规则
-    for pattern, replacement in advanced_patterns:
-        base = re.sub(pattern, replacement, base)
-
-    # 以下是非排除文件夹的处理逻辑
+    # 动态获取文件类型
+    file_type = get_file_type(filename)
+    # 应用 basic_patterns
+    basic_patterns, is_pair = get_patterns('basic_patterns', file_type)
+    if is_pair:
+        for pattern, replacement in basic_patterns:
+            base = re.sub(pattern, replacement, base)
+    else:
+        for pattern in basic_patterns:
+            base = re.sub(pattern, '', base)
+    # 应用 advanced_patterns
+    advanced_patterns, is_pair = get_patterns('advanced_patterns', file_type)
+    if is_pair:
+        for pattern, replacement in advanced_patterns:
+            base = re.sub(pattern, replacement, base)
+    else:
+        for pattern in advanced_patterns:
+            base = re.sub(pattern, '', base)
+    # prefix_priority
+    prefix_priority, _ = get_patterns('prefix_priority', file_type)
+    # suffix_keywords
+    suffix_keywords, _ = get_patterns('suffix_keywords', file_type)
+    # 以下原有 prefix/suffix 处理逻辑保持不变
     pattern_brackets = re.compile(r'\[([^\[\]]+)\]')
     pattern_parentheses = re.compile(r'\(([^\(\)]+)\)')
-    
-    # 提取方括号和圆括号中的内容
-    group1 = pattern_brackets.findall(base)  # 找到所有方括号内容
-    group3 = pattern_brackets.sub('', base)  # 移除所有方括号内容
-    group2 = pattern_parentheses.findall(group3)  # 找到所有圆括号内容
-    group3 = pattern_parentheses.sub('', group3).strip()  # 移除所有圆括号内容并去除首尾空格
-    
-    # 将 group1 和 group2 组合为一个完整的列表
+    group1 = pattern_brackets.findall(base)
+    group3 = pattern_brackets.sub('', base)
+    group2 = pattern_parentheses.findall(group3)
+    group3 = pattern_parentheses.sub('', group3).strip()
     all_groups = group1 + group2
-    
-    # 分离出 prefix 和 suffix 部分
     prefix_elements = []
     suffix_elements = []
     middle_elements = []
-
-    # 收集所有元素及其优先级
     suffix_candidates = []
     prefix_candidates = []
     artist_elements = []
-    remaining_elements = all_groups.copy()  # 创建待处理元素的副本
-    
-    # 先处理画师名
+    remaining_elements = all_groups.copy()
     for element in all_groups:
         if has_artist_name(element, artist_name):
             artist_elements.append(element)
             remaining_elements.remove(element)
-    
-    # 处理后缀
-    for element in remaining_elements[:]:  # 使用切片创建副本进行迭代
+    for element in remaining_elements[:]:
         if any(re.search(kw, element) for kw in suffix_keywords):
             for i, pattern in enumerate(prefix_priority):
                 if re.search(pattern, element):
@@ -396,73 +272,51 @@ def get_unique_filename(directory, filename, artist_name, is_excluded=False):
             else:
                 suffix_candidates.append((element, len(prefix_priority)))
                 remaining_elements.remove(element)
-    
-    # 处理前缀
     for element in remaining_elements[:]:
         matched = False
-        # 检查是否同时包含日期和C编号
         c_match = re.search(r'C(\d+)', element)
         date_match = re.search(r'(\d{4})\.(\d{2})', element)
-        
         if c_match and date_match:
-            # 如果同时包含，分别处理
             c_num = c_match.group(0)
             date = f"({date_match.group(1)}.{date_match.group(2)})"
-            prefix_candidates.append((f"({c_num})", 0))  # C编号优先级最高
-            prefix_candidates.append((date, 4))  # 日期次之
+            prefix_candidates.append((f"({c_num})", 0))
+            prefix_candidates.append((date, 4))
             remaining_elements.remove(element)
             matched = True
         else:
-            # 如果不是同时包含，按原有逻辑处理
             for i, pattern in enumerate(prefix_priority):
                 if re.search(pattern, element):
                     prefix_candidates.append((element, i))
                     remaining_elements.remove(element)
                     matched = True
                     break
-        
         if not matched:
             middle_elements.append(f"[{element}]")
-    
-    # 按优先级排序并添加到前缀列表
     prefix_candidates.sort(key=lambda x: x[1])
     for element, priority in prefix_candidates:
         if f"({element})" not in prefix_elements:
             prefix_elements.append(f"({element})")
-    
-    # 按优先级排序并添加到后缀列表
     suffix_candidates.sort(key=lambda x: x[1])
     for element, priority in suffix_candidates:
         if f"[{element}]" not in suffix_elements:
             suffix_elements.append(f"[{element}]")
-    
-    # 最后添加画师元素（只在不包含禁止关键词时添加）
     if not has_forbidden_keyword(base):
         for element in artist_elements:
             if f"[{element}]" not in suffix_elements:
                 suffix_elements.append(f"[{element}]")
-    
-    # 拼接新的文件名，prefix 在前，group3 在中间，suffix 在后
     prefix_part = f"{' '.join(prefix_elements)} " if prefix_elements else ""
     middle_part = f"{group3} {' '.join(middle_elements)}".strip()
     suffix_part = f" {' '.join(suffix_elements)}" if suffix_elements else ""
-    
     new_base = f"{prefix_part}{middle_part}{suffix_part}".strip()
-    
-    # 最后再次清理可能残留的空括号和空方框
-    new_base = re.sub(r'\(\s*\)\s*', ' ', new_base)  # 清理空括号
-    new_base = re.sub(r'\[\s*\]\s*', ' ', new_base)  # 清理空方框
-    new_base = re.sub(r'\s{2,}', ' ', new_base)  # 清理多余空格
+    new_base = re.sub(r'\(\s*\)\s*', ' ', new_base)
+    new_base = re.sub(r'\[\s*\]\s*', ' ', new_base)
+    new_base = re.sub(r'\s{2,}', ' ', new_base)
     new_base = new_base.strip()
-    
-    # 限制文件名长度为NAME_LEN个字符（不包括扩展名）
     max_length = NAME_LEN - len(ext)
     if len(new_base) > max_length:
         logger.warning(f"文件名过长，将被截断: {new_base}")
         new_base = new_base[:max_length]
         logger.info(f"截断后的文件名: {new_base}")
-    
-    # 检查文件是否存在，如果存在则添加[samename_n]后缀
     filename = f"{new_base}{ext}"
     return get_unique_filename_with_samename(directory, filename)
 

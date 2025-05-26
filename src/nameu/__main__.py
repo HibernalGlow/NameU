@@ -15,6 +15,7 @@ from nameu.core.file_processor import (
     process_artist_folder, process_folders, record_folder_timestamps,
     restore_folder_timestamps, get_artist_name
 )
+from nameu.type.filter_manager import FilterManager
 
 # 初始化 colorama
 init()
@@ -23,7 +24,7 @@ init()
 add_artist_name_enabled = True
 logger, config_info = setup_logger(app_name="nameu", console_output=True)
 
-def main():
+def tui():
     """主函数"""
     # 定义复选框选项
     checkbox_options = [
@@ -59,6 +60,12 @@ def main():
             "description": "不将敏感词转换为拼音的模式",
             "checkbox_options": ["keep_timestamp", "multi_mode", "clipboard"],
             "input_values": {"path": ""}
+        },
+        "只处理视频": {
+            "description": "只处理视频文件，应用视频专属命名规则",
+            "checkbox_options": ["keep_timestamp", "multi_mode", "clipboard"],
+            "input_values": {"path": ""},
+            "filter_options": {"--type": "video"}
         }
     }
 
@@ -71,8 +78,7 @@ def main():
         preset_configs=preset_configs
     )
     app.run()
-
-if __name__ == "__main__":
+def main():
     # 设置日志
     parser = argparse.ArgumentParser(description='处理文件名重命名')
     parser.add_argument('-c', '--clipboard', action='store_true', help='从剪贴板读取路径')
@@ -82,10 +88,14 @@ if __name__ == "__main__":
     parser.add_argument('--keep-timestamp', action='store_true', help='保持文件的修改时间')
     parser.add_argument('--convert-sensitive', action='store_true', default=True, help='将敏感词转换为拼音')
     parser.add_argument('--no-convert-sensitive', dest='convert_sensitive', action='store_false', help='不转换敏感词',default=False)
+    # 新增过滤参数
+    parser.add_argument('-i', '--include', nargs='*', help='只处理指定格式（如 jpg png 或 folder）')
+    parser.add_argument('-e', '--exclude', nargs='*', help='排除指定格式（如 gif 或 folder）')
+    parser.add_argument('-t', '--type', help='指定文件类型类别（如 image, video, text, folder）')
     args = parser.parse_args()
 
     if len(sys.argv) == 1:  # 如果没有命令行参数，启动TUI界面
-        main()
+        tui()
         sys.exit(0)
 
     # 处理路径参数
@@ -113,12 +123,20 @@ if __name__ == "__main__":
     print(f"- 添加画师名: {'禁用' if args.no_artist else '启用'}")
     print(f"- 敏感词转拼音: {'启用' if convert_sensitive_enabled else '禁用'}")
     
+    # 组装过滤参数
+    format_filters = {
+        '--include': args.include or [],
+        '--exclude': args.exclude or [],
+        '--type': args.type,
+    }
+    filter_manager = FilterManager(format_filters)
+    
     # 根据模式确定基础路径和处理方式
     if args.mode == 'multi':
         base_path = path
         if args.keep_timestamp:
             older_timestamps = record_folder_timestamps(base_path)
-        process_folders(base_path, add_artist_name_enabled, convert_sensitive_enabled)
+        process_folders(base_path, add_artist_name_enabled, convert_sensitive_enabled, filter_manager=filter_manager)
         if args.keep_timestamp:
             restore_folder_timestamps(older_timestamps)
     else:  # single mode
@@ -136,7 +154,7 @@ if __name__ == "__main__":
         if args.keep_timestamp:
             older_timestamps = record_folder_timestamps(artist_path)
             
-        modified_files_count = process_artist_folder(artist_path, artist_name, add_artist_name_enabled, convert_sensitive_enabled)
+        modified_files_count = process_artist_folder(artist_path, artist_name, add_artist_name_enabled, convert_sensitive_enabled, filter_manager=filter_manager)
         
         if args.keep_timestamp:
             restore_folder_timestamps(older_timestamps)
@@ -151,3 +169,5 @@ if __name__ == "__main__":
             print(f"- 重命名了 {modified_files_count} 个文件")
         else:
             print(f"- ✨ 所有文件名都符合规范，没有文件需要重命名")
+if __name__ == "__main__":
+    main()

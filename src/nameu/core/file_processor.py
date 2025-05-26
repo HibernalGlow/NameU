@@ -102,14 +102,14 @@ def process_files_in_directory(directory, artist_name, add_artist_name_enabled=T
 
     return modified_files_count
 
-def process_artist_folder(artist_path, artist_name, add_artist_name_enabled=True, convert_sensitive_enabled=True):
+def process_artist_folder(artist_path, artist_name, add_artist_name_enabled=True, convert_sensitive_enabled=True, filter_manager=None):
     """递归处理画师文件夹及其所有子文件夹
-    
     Args:
         artist_path: 画师文件夹路径
         artist_name: 画师名称
         add_artist_name_enabled: 是否添加画师名
         convert_sensitive_enabled: 是否将敏感词转换为拼音
+        filter_manager: 过滤管理器
     """
     total_modified_files_count = 0
 
@@ -122,20 +122,18 @@ def process_artist_folder(artist_path, artist_name, add_artist_name_enabled=True
             # 如果当前目录包含排除关键词，跳过整个目录
             if any(keyword in root for keyword in exclude_keywords):
                 continue
-            
             # 处理子文件夹名称
             for i, dir_name in enumerate(dirs):
+                old_path = os.path.join(root, dir_name)
+                # 过滤文件夹
+                if filter_manager and filter_manager.should_filter_file(old_path):
+                    continue
                 # 跳过排除的文件夹
                 if any(keyword in dir_name for keyword in exclude_keywords):
                     continue
-                    
-                # 获取完整路径
-                old_path = os.path.join(root, dir_name)
-                
                 # 如果不是一级目录，则应用格式化
                 if root != artist_path:
                     new_name = format_folder_name(dir_name)
-                    
                     # 检测目录名是否包含敏感词并转换
                     if convert_sensitive_enabled and check_sensitive_word(new_name):
                         logger.info(f"目录名含有敏感词，开始转换为拼音: {new_name}")
@@ -143,69 +141,59 @@ def process_artist_folder(artist_path, artist_name, add_artist_name_enabled=True
                         logger.info(f"检测到的敏感词: {', '.join(sensitive_words)}")
                         new_name = convert_sensitive_words_to_pinyin(new_name)
                         logger.info(f"转换后的目录名: {new_name}")
-                    
                     if new_name != dir_name:
                         new_path = os.path.join(root, new_name)
                         try:
-                            # 保存原始时间戳
                             dir_stat = os.stat(old_path)
-                            # 重命名文件夹
                             os.rename(old_path, new_path)
-                            # 恢复时间戳
                             os.utime(new_path, (dir_stat.st_atime, dir_stat.st_mtime))
-                            # 更新 dirs 列表中的名称，确保 os.walk 继续正常工作
                             dirs[i] = new_name
                             logger.info(f"重命名文件夹: {old_path} -> {new_path}")
                         except Exception as e:
                             logger.error(f"重命名文件夹出错 {old_path}: {str(e)}")
-                
             # 处理当前目录下的所有压缩文件
+            for filename in files:
+                file_path = os.path.join(root, filename)
+                if filter_manager and filter_manager.should_filter_file(file_path):
+                    continue
             modified_files_count = process_files_in_directory(root, artist_name, add_artist_name_enabled, convert_sensitive_enabled)
             total_modified_files_count += modified_files_count
     except Exception as e:
         logger.error(f"处理文件夹出错: {e}")
-
     return total_modified_files_count
 
-def process_folders(base_path, add_artist_name_enabled=True, convert_sensitive_enabled=True):
+def process_folders(base_path, add_artist_name_enabled=True, convert_sensitive_enabled=True, filter_manager=None):
     """
     处理基础路径下的所有画师文件夹。
     不使用多线程，逐个处理每个画师的文件。
-    
     Args:
         base_path: 基础路径
         add_artist_name_enabled: 是否添加画师名
         convert_sensitive_enabled: 是否将敏感词转换为拼音
+        filter_manager: 过滤管理器
     """
-    # 获取所有画师文件夹
     artist_folders = [
         folder for folder in os.listdir(base_path)
         if os.path.isdir(os.path.join(base_path, folder))
     ]
-
     total_processed = 0
     total_modified = 0
     total_files = 0
     total_sensitive = 0
-
-    # 逐个处理画师文件夹
     for folder in artist_folders:
+        artist_path = os.path.join(base_path, folder)
+        # 过滤画师文件夹
+        if filter_manager and filter_manager.should_filter_file(artist_path):
+            continue
         try:
-            artist_path = os.path.join(base_path, folder)
             artist_name = get_artist_name(base_path, artist_path)
-            
-            # 处理画师文件夹中的文件，并获取修改文件数量
-            modified_files_count = process_artist_folder(artist_path, artist_name, add_artist_name_enabled, convert_sensitive_enabled)
+            modified_files_count = process_artist_folder(artist_path, artist_name, add_artist_name_enabled, convert_sensitive_enabled, filter_manager=filter_manager)
             total_processed += 1
             total_modified += modified_files_count
-            
-            # 统计该文件夹中的压缩文件总数
             for root, _, files in os.walk(artist_path):
                 total_files += len([f for f in files if f.lower().endswith(ARCHIVE_EXTENSIONS)])
-            
         except Exception as e:
             logger.error(f"处理文件夹 {folder} 出错: {e}")
-            
     print(f"\n处理完成:")
     print(f"- 总共处理了 {total_processed} 个文件夹")
     print(f"- 扫描了 {total_files} 个压缩文件")
