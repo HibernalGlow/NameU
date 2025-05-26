@@ -6,6 +6,7 @@ from idu.core.uuid_record_manager import UuidRecordManager
 from idu.core.yaml_handler import YamlHandler
 from idu.core.archive_processor import ArchiveProcessor
 from idu.core.main import run_command, CommandManager, TaskExecutor
+from loguru import logger
 
 __all__ = [
     'JsonHandler',
@@ -17,5 +18,6 @@ __all__ = [
     'ArchiveProcessor',
     'run_command',
     'CommandManager',
-    'TaskExecutor'
+    'TaskExecutor',
+    'logger'
 ]

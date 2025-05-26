@@ -3,7 +3,8 @@ import yaml
 import logging
 from typing import List, Any
 
-logger = logging.getLogger(__name__)
+from loguru import logger
+
 
 class YamlHandler:
     """YAML文件处理类"""

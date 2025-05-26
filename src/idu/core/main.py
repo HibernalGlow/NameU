@@ -13,8 +13,8 @@ from idu.core.archive_processor import ArchiveProcessor
 from idu.core.uuid_record_manager import UuidRecordManager
 from idu.core.json_handler import JsonHandler
 from idu.core.path_handler import PathHandler
+from loguru import logger
 
-logger = logging.getLogger(__name__)
 
 class CommandManager:
     """命令行参数管理器"""

@@ -84,7 +84,7 @@ def setup_logger(app_name="app", project_root=None, console_output=True):
     logger.info(f"日志系统已初始化，应用名称: {app_name}")
     return logger, config_info
 
-logger, config_info = setup_logger(app_name="auto_uuid", console_output=True)
+logger, config_info = setup_logger(app_name="auto_uuid", console_output=False)
 
 
 # 定义日志布局配置

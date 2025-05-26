@@ -5,13 +5,17 @@ import shutil
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, Any, Set, List, Tuple
+import asyncio
+from concurrent.futures import ProcessPoolExecutor
 
 from idu.core.archive_handler import ArchiveHandler
 from idu.core.json_handler import JsonHandler
 from idu.core.path_handler import PathHandler
 from idu.core.uuid_handler import UuidHandler
+from idu.sql.db_manager import DBManager
 
-logger = logging.getLogger(__name__)
+from loguru import logger
+
 
 class ArchiveProcessor:
     """压缩文件处理类"""
@@ -24,7 +28,28 @@ class ArchiveProcessor:
         self.order = order  # 保存排序方式
         self.total_archives = 0  # 总文件数
         self.processed_archives = 0  # 已处理文件数
+        self.db_path = os.path.join(self.uuid_directory, 'artworks.db')
+        self.uuid_set = self._load_all_uuids()
     
+    def _load_all_uuids(self):
+        db = DBManager(self.db_path)
+        uuid_list = db.get_all_uuids()
+        db.close()
+        return set(uuid_list)
+
+    def _write_sqlite_and_json(self, uuid, json_data, file_name, artist, relative_path, created_time, json_backup_path):
+        # sqlite写入
+        if uuid not in self.uuid_set:
+            db = DBManager(self.db_path)
+            db.insert_or_replace(uuid, json_data, file_name, artist, relative_path, created_time)
+            db.close()
+            self.uuid_set.add(uuid)
+        # json备份
+        from idu.core.json_handler import JsonHandler
+        import orjson
+        data = orjson.loads(json_data.encode('utf-8')) if isinstance(json_data, str) else json_data
+        JsonHandler.save(json_backup_path, data)
+
     def process_archives(self) -> bool:
         """处理所有压缩文件（SSD优化版）"""
         try:
@@ -199,6 +224,14 @@ class ArchiveProcessor:
             if JsonHandler.save(temp_json, json_content):
                 if ArchiveHandler.add_json_to_archive(archive_path, temp_json, json_name):
                     logger.info(f"[#update]✅ 已更新压缩包中的JSON记录: {archive_name}")
+                    uuid = json_content.get('uuid', '')
+                    import orjson
+                    json_str = orjson.dumps(json_content).decode('utf-8')
+                    created_time = timestamp
+                    json_backup_path = os.path.join(self.uuid_directory, f"{uuid}.json")
+                    # 同步写入
+                    self._write_sqlite_and_json(
+                        uuid, json_str, archive_name, artist_name, relative_path, created_time, json_backup_path)
                     return True
             return False
         finally:
@@ -264,6 +297,13 @@ class ArchiveProcessor:
             logger.info(f"[#process]创建新JSON: {json_filename}")
             if ArchiveHandler.add_json_to_archive(archive_path, json_path, json_filename):
                 logger.info(f"[#update]✅ 已添加新JSON到压缩包: {archive_name}")
+                import orjson
+                json_str = orjson.dumps(json_data).decode('utf-8')
+                created_time = timestamp
+                json_backup_path = os.path.join(self.uuid_directory, f"{uuid_value}.json")
+                # 同步写入
+                self._write_sqlite_and_json(
+                    uuid_value, json_str, archive_name, artist_name, relative_path, created_time, json_backup_path)
                 return True
             else:
                 logger.error(f"[#process]添加JSON到压缩包失败: {archive_name}")

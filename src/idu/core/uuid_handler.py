@@ -5,7 +5,8 @@ import logging
 from nanoid import generate
 from typing import Set
 
-logger = logging.getLogger(__name__)
+from loguru import logger
+
 
 class UuidHandler:
     """UUID处理类"""

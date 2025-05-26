@@ -8,7 +8,8 @@ from typing import Dict, Any
 
 from idu.core.json_handler import JsonHandler
 
-logger = logging.getLogger(__name__)
+from loguru import logger
+
 
 class UuidRecordManager:
     """UUID记录管理类"""

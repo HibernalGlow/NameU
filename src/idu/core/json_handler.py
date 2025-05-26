@@ -2,8 +2,7 @@ import os
 import orjson  # 使用orjson进行更快的JSON处理
 import logging
 from typing import Dict, Any, List
-
-logger = logging.getLogger(__name__)
+from loguru import logger
 
 class JsonHandler:
     """JSON文件处理类"""

@@ -9,7 +9,8 @@ from typing import Dict, Any, Optional, List, Tuple
 from idu.core.json_handler import JsonHandler
 from idu.core.uuid_handler import UuidHandler
 
-logger = logging.getLogger(__name__)
+from loguru import logger
+
 
 class ArchiveHandler:
     """压缩包处理类"""
@@ -257,10 +258,10 @@ class ArchiveHandler:
                     stderr=subprocess.DEVNULL,
                     check=True
                 )
-                logger.info(f"[#process]添加JSON文件: {json_name}")
+                logger.info(f"[#process]添加JSON文件: {json_name}{archive_path}")
                 return True
             except subprocess.CalledProcessError:
-                logger.error(f"[#process]添加JSON文件失败: {json_name}")
+                logger.error(f"[#process]添加JSON文件失败: {json_name} {archive_path}")
                 return False
 
     @staticmethod
