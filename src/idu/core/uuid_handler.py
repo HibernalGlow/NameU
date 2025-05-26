@@ -6,6 +6,7 @@ from nanoid import generate
 from typing import Set
 
 from loguru import logger
+from idu.sql.db_manager import DBManager
 
 
 class UuidHandler:
@@ -20,25 +21,9 @@ class UuidHandler:
                 return new_uuid
     
     @staticmethod
-    def load_existing_uuids() -> Set[str]:
-        """从JSON记录中加载现有UUID"""
-        logger.info("[#current_stats]🔍 开始加载现有UUID...")
-        start_time = time.time()
-        
-        json_record_path = r'E:\1BACKUP\ehv\uuid\uuid_records.json'
-        if not os.path.exists(json_record_path):
-            return set()
-            
-        try:
-            with open(json_record_path, 'r', encoding='utf-8') as f:
-                records = json.load(f)
-            # 从record键获取数据
-            uuids = set(records.get("record", {}).keys())
-            
-            elapsed = time.time() - start_time
-            logger.info(f"[#current_stats]✅ 加载完成！共加载 {len(uuids)} 个UUID，耗时 {elapsed:.2f} 秒")
-            return uuids
-            
-        except Exception as e:
-            logger.error(f"[#process]加载UUID记录失败: {e}")
-            return set()
+    def load_existing_uuids(db_path: str) -> set:
+        """直接从数据库artworks表加载现有UUID"""
+        db = DBManager(db_path)
+        uuid_set = set(db.get_all_uuids())
+        db.close()
+        return uuid_set
