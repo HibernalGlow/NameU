@@ -181,13 +181,13 @@ def format_folder_name(folder_name):
         for pattern, replacement in basic_patterns:
             new_name = re.sub(pattern, replacement, formatted_name)
             if new_name != formatted_name:
-                logger.info(f"[格式匹配][文件夹] '{formatted_name}' -> '{new_name}'  (pattern: {pattern}, replacement: {replacement})")
+                logger.info(f"\n[f.文件夹] '{formatted_name}' -> '{new_name}'  (pattern: {pattern}, replacement: {replacement})")
             formatted_name = new_name
     else:
         for pattern in basic_patterns:
             new_name = re.sub(pattern, '', formatted_name)
             if new_name != formatted_name:
-                logger.info(f"[格式匹配][文件夹] '{formatted_name}' -> '{new_name}'  (pattern: {pattern})")
+                logger.info(f"\n[f.文件夹] '{formatted_name}' -> '{new_name}'  (pattern: {pattern})")
             formatted_name = new_name
     formatted_name = remove_duplicate_brackets(formatted_name)
     try:
@@ -230,13 +230,13 @@ def get_unique_filename(directory, filename, artist_name, is_excluded=False):
         for pattern, replacement in basic_patterns:
             new_base = re.sub(pattern, replacement, base)
             if new_base != base:
-                logger.info(f"[格式匹配][basic] '{base}' -> '{new_base}'  (pattern: {pattern}, replacement: {replacement})")
+                logger.info(f"\n[f.basic] '{base}' -> '{new_base}'  (pattern: {pattern}, replacement: {replacement})")
             base = new_base
     else:
         for pattern in basic_patterns:
             new_base = re.sub(pattern, '', base)
             if new_base != base:
-                logger.info(f"[格式匹配][basic] '{base}' -> '{new_base}'  (pattern: {pattern})")
+                logger.info(f"\n[f.basic] '{base}' -> '{new_base}'  (pattern: {pattern})")
             base = new_base
     # advanced_patterns 日志
     advanced_patterns, is_pair = get_patterns('advanced_patterns', file_type)
@@ -244,13 +244,13 @@ def get_unique_filename(directory, filename, artist_name, is_excluded=False):
         for pattern, replacement in advanced_patterns:
             new_base = re.sub(pattern, replacement, base)
             if new_base != base:
-                logger.info(f"[格式匹配][advanced] '{base}' -> '{new_base}'  (pattern: {pattern}, replacement: {replacement})")
+                logger.info(f"\n[f.advanced] '{base}' -> '{new_base}'  (pattern: {pattern}, replacement: {replacement})")
             base = new_base
     else:
         for pattern in advanced_patterns:
             new_base = re.sub(pattern, '', base)
             if new_base != base:
-                logger.info(f"[格式匹配][advanced] '{base}' -> '{new_base}'  (pattern: {pattern})")
+                logger.info(f"\n[f.advanced] '{base}' -> '{new_base}'  (pattern: {pattern})")
             base = new_base
     # prefix_priority
     prefix_priority, _ = get_patterns('prefix_priority', file_type)
