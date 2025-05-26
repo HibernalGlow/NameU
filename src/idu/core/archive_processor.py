@@ -7,6 +7,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, Any, Set, List, Tuple
 import asyncio
 from concurrent.futures import ProcessPoolExecutor
+import tempfile
 
 from idu.core.archive_handler import ArchiveHandler
 from idu.core.json_handler import JsonHandler
@@ -37,18 +38,13 @@ class ArchiveProcessor:
         db.close()
         return set(uuid_list)
 
-    def _write_sqlite_and_json(self, uuid, json_data, file_name, artist, relative_path, created_time, json_backup_path):
-        # sqlite写入
+    def _write_sqlite_and_json(self, uuid, json_data, file_name, artist, relative_path, created_time, bak=None):
+        # 只写入sqlite，不再做json备份，支持bak
         if uuid not in self.uuid_set:
             db = DBManager(self.db_path)
-            db.insert_or_replace(uuid, json_data, file_name, artist, relative_path, created_time)
+            db.insert_or_replace(uuid, json_data, file_name, artist, relative_path, created_time, bak)
             db.close()
             self.uuid_set.add(uuid)
-        # json备份
-        from idu.core.json_handler import JsonHandler
-        import orjson
-        data = orjson.loads(json_data.encode('utf-8')) if isinstance(json_data, str) else json_data
-        JsonHandler.save(json_backup_path, data)
 
     def process_archives(self) -> bool:
         """处理所有压缩文件（SSD优化版）"""
@@ -206,36 +202,31 @@ class ArchiveProcessor:
             bool: 处理是否成功
         """
         json_name, json_content = json_file
-        
         # 检查是否需要更新
         if not JsonHandler.check_and_update_record(json_content, archive_name, artist_name, relative_path, timestamp):
-            # logger.info(f"[#process]记录无需更新: {os.path.basename(archive_path)}")
             return True
-            
-        # 更新记录
         logger.info(f"[#process]检测到记录需要更新: {os.path.basename(archive_path)}")
-        json_content = JsonHandler.update_record(json_content, archive_name, artist_name, relative_path, timestamp)
-        
-        # 创建临时文件并更新压缩包
-        temp_dir = os.path.join(os.path.dirname(archive_path), '.temp_update')
-        os.makedirs(temp_dir, exist_ok=True)
-        try:
+        old_json = json_content.copy()
+        updated_json = JsonHandler.update_record(json_content, archive_name, artist_name, relative_path, timestamp)
+        import orjson
+        json_str = orjson.dumps(updated_json).decode('utf-8')
+        created_time = timestamp
+        bak = None
+        # 检查合并是否失败（可自定义合并失败判据，这里假设返回None或特殊标志）
+        if updated_json is None or (isinstance(updated_json, dict) and updated_json.get('__merge_failed__')):
+            bak = orjson.dumps(old_json).decode('utf-8')
+            updated_json = old_json  # 仍然写入旧json
+            json_str = orjson.dumps(updated_json).decode('utf-8')
+        with tempfile.TemporaryDirectory() as temp_dir:
             temp_json = os.path.join(temp_dir, json_name)
-            if JsonHandler.save(temp_json, json_content):
+            if JsonHandler.save(temp_json, updated_json):
                 if ArchiveHandler.add_json_to_archive(archive_path, temp_json, json_name):
                     logger.info(f"[#update]✅ 已更新压缩包中的JSON记录: {archive_name}")
-                    uuid = json_content.get('uuid', '')
-                    import orjson
-                    json_str = orjson.dumps(json_content).decode('utf-8')
-                    created_time = timestamp
-                    json_backup_path = os.path.join(self.uuid_directory, f"{uuid}.json")
-                    # 同步写入
+                    uuid = updated_json.get('uuid', '')
                     self._write_sqlite_and_json(
-                        uuid, json_str, archive_name, artist_name, relative_path, created_time, json_backup_path)
+                        uuid, json_str, archive_name, artist_name, relative_path, created_time, None if bak is None else bak)
                     return True
             return False
-        finally:
-            shutil.rmtree(temp_dir, ignore_errors=True)
     
     def _handle_multiple_json(self, archive_path: str, valid_json_files: List[tuple], yaml_files: List[str], 
                             all_json_files: List[str], archive_name: str, artist_name: str, 
@@ -255,59 +246,42 @@ class ArchiveProcessor:
         Returns:
             bool: 处理是否成功
         """
-        # 删除所有JSON和YAML文件
-        files_to_delete = all_json_files  # 删除所有JSON文件，包括无效的
+        files_to_delete = all_json_files
         files_to_delete.extend(yaml_files)
-        
         if files_to_delete:
             logger.info(f"[#process]删除现有文件: {os.path.basename(archive_path)}")
-            # 强力删除：先尝试使用通配符删除
             try:
                 ArchiveHandler.delete_files_from_archive(archive_path, ['*.json', '*.yaml'])
             except Exception:
                 pass
-            # 然后再逐个删除具体文件
             ArchiveHandler.delete_files_from_archive(archive_path, files_to_delete)
-        
-        # 创建新的UUID记录
         uuid_value = UuidHandler.generate_uuid(UuidHandler.load_existing_uuids())
         json_filename = f"{uuid_value}.json"
-        
-        # 获取按年月日分层的目录路径
         day_dir = PathHandler.get_uuid_path(self.uuid_directory, timestamp)
         json_path = os.path.join(day_dir, json_filename)
-        
-        # 准备新的记录数据
         new_record = {
             "archive_name": archive_name,
             "artist_name": artist_name,
             "relative_path": relative_path
         }
-        
-        # 创建新的JSON文件
         json_data = {
             "uuid": uuid_value,
             "timestamps": {
                 timestamp: new_record
             }
         }
-        
-        # 保存并添加新JSON文件
-        if JsonHandler.save(json_path, json_data):
-            logger.info(f"[#process]创建新JSON: {json_filename}")
-            if ArchiveHandler.add_json_to_archive(archive_path, json_path, json_filename):
-                logger.info(f"[#update]✅ 已添加新JSON到压缩包: {archive_name}")
-                import orjson
-                json_str = orjson.dumps(json_data).decode('utf-8')
-                created_time = timestamp
-                json_backup_path = os.path.join(self.uuid_directory, f"{uuid_value}.json")
-                # 同步写入
-                self._write_sqlite_and_json(
-                    uuid_value, json_str, archive_name, artist_name, relative_path, created_time, json_backup_path)
-                return True
+        import orjson
+        json_str = orjson.dumps(json_data).decode('utf-8')
+        created_time = timestamp
+        bak = None
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_json = os.path.join(temp_dir, json_filename)
+            if JsonHandler.save(temp_json, json_data):
+                if ArchiveHandler.add_json_to_archive(archive_path, temp_json, json_filename):
+                    logger.info(f"[#update]✅ 已添加新JSON到压缩包: {archive_name}")
+                    self._write_sqlite_and_json(
+                        uuid_value, json_str, archive_name, artist_name, relative_path, created_time, None if bak is None else bak)
+                    return True
             else:
                 logger.error(f"[#process]添加JSON到压缩包失败: {archive_name}")
-        else:
-            logger.error(f"[#process]JSON文件保存失败: {archive_name}")
-            
         return False

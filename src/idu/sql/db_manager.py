@@ -11,27 +11,53 @@ class DBManager:
 
     def _create_table(self):
         cursor = self.conn.cursor()
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS artworks (
-                uuid TEXT PRIMARY KEY,
-                json_data TEXT NOT NULL,看
-                
-                file_name TEXT,
-                artist TEXT,
-                relative_path TEXT,
-                created_time TEXT
-            )
-        ''')
+        # 检查是否已有bak字段
+        cursor.execute("PRAGMA table_info(artworks)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if 'bak' not in columns:
+            # 如果表已存在但无bak字段，自动添加
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS artworks (
+                    uuid TEXT PRIMARY KEY,
+                    json_data TEXT NOT NULL,
+                    file_name TEXT,
+                    artist TEXT,
+                    relative_path TEXT,
+                    created_time TEXT
+                )
+            ''')
+            try:
+                cursor.execute('ALTER TABLE artworks ADD COLUMN bak TEXT')
+            except Exception:
+                pass
+        else:
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS artworks (
+                    uuid TEXT PRIMARY KEY,
+                    json_data TEXT NOT NULL,
+                    file_name TEXT,
+                    artist TEXT,
+                    relative_path TEXT,
+                    created_time TEXT,
+                    bak TEXT
+                )
+            ''')
         self.conn.commit()
 
-    def insert_or_replace(self, uuid: str, json_data: str, file_name: str, artist: str, relative_path: str, created_time: str):
+    def insert_or_replace(self, uuid: str, json_data: str, file_name: str, artist: str, relative_path: str, created_time: str, bak: str = None):
         cursor = self.conn.cursor()
-        cursor.execute('''
-            INSERT OR REPLACE INTO artworks (uuid, json_data, file_name, artist, relative_path, created_time)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (uuid, json_data, file_name, artist, relative_path, created_time))
+        if bak is not None:
+            cursor.execute('''
+                INSERT OR REPLACE INTO artworks (uuid, json_data, file_name, artist, relative_path, created_time, bak)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (uuid, json_data, file_name, artist, relative_path, created_time, bak))
+        else:
+            cursor.execute('''
+                INSERT OR REPLACE INTO artworks (uuid, json_data, file_name, artist, relative_path, created_time)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (uuid, json_data, file_name, artist, relative_path, created_time))
         self.conn.commit()
-        logger.info(f"[DB] 插入/更新: uuid={uuid}, file_name={file_name}, artist={artist}, relative_path={relative_path}, created_time={created_time}")
+        logger.info(f"[DB] 插入/更新: uuid={uuid}, file_name={file_name}, artist={artist}, relative_path={relative_path}, created_time={created_time}, bak={'有' if bak else '无'}")
 
     def get_by_uuid(self, uuid: str) -> Optional[Dict[str, Any]]:
         cursor = self.conn.cursor()
