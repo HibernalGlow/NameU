@@ -42,6 +42,11 @@ class DBManager:
                     bak TEXT
                 )
             ''')
+        # archive_name索引（file_name即archive_name）
+        try:
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_artworks_file_name ON artworks(file_name)')
+        except Exception:
+            pass
         self.conn.commit()
 
     def insert_or_replace(self, uuid: str, json_data: str, file_name: str, artist: str, relative_path: str, created_time: str, bak: str = None):
@@ -92,6 +97,23 @@ class DBManager:
         uuids = [row[0] for row in cursor.fetchall()]
         logger.info(f"[DB] 查询所有uuid, 共{len(uuids)}条")
         return uuids
+
+    def get_by_archive_name(self, archive_name: str) -> Optional[Dict[str, Any]]:
+        cursor = self.conn.cursor()
+        cursor.execute('SELECT * FROM artworks WHERE file_name = ?', (archive_name,))
+        row = cursor.fetchone()
+        if row:
+            logger.info(f"[DB] 查询: archive_name={archive_name} 命中")
+            return {
+                'uuid': row[0],
+                'json_data': row[1],
+                'file_name': row[2],
+                'artist': row[3],
+                'relative_path': row[4],
+                'created_time': row[5],
+            }
+        logger.info(f"[DB] 查询: archive_name={archive_name} 未命中")
+        return None
 
     def close(self):
         self.conn.close() 
