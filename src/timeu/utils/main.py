@@ -1,7 +1,10 @@
 from rich.console import Console
 from rich.prompt import Prompt, Confirm, IntPrompt
 from rich.table import Table
+from rich.tree import Tree
+from rich import print as rprint
 import os
+import json
 from input_path import get_path
 from extract_timestamp import extract_timestamp_from_name
 from sync_file_time import sync_folder_file_time
@@ -93,6 +96,14 @@ def main():
     operations = []
     folders_with_timestamp = []
     
+    # 创建JSON树结构
+    preview_tree = {
+        "根目录": path,
+        "归档目录": base_dst,
+        "格式": format_key,
+        "文件夹": {}
+    }
+    
     for name in os.listdir(path):
         folder_path = os.path.join(path, name)
         if not os.path.isdir(folder_path) or folder_path == base_dst:
@@ -107,31 +118,52 @@ def main():
         
         # 预览
         preview_path = archive_folder(folder_path, dt, base_dst, format_key, dry_run=True)
+        
+        # 提取相对路径，更好地展示变化
+        rel_dst = os.path.relpath(preview_path, base_dst)
+        
         operations.append({
             "folder": name,
             "timestamp": dt,
             "destination": preview_path,
+            "rel_destination": rel_dst
         })
+        
+        # 添加到JSON树
+        preview_tree["文件夹"][name] = {
+            "识别时间": dt.strftime("%Y-%m-%d"),
+            "目标路径": rel_dst
+        }
     
     # 显示预览表格
     if not operations:
         console.print("[yellow]没有找到符合条件的文件夹")
         return
+    
+    # 保存预览JSON
+    preview_json_path = os.path.join(path, "timeu_preview.json")
+    with open(preview_json_path, "w", encoding="utf-8") as f:
+        json.dump(preview_tree, f, ensure_ascii=False, indent=2)
+    console.print(f"[blue]预览已保存到: {preview_json_path}")
         
+    # 创建文件树形式的预览
     console.print("\n[bold]预览将要执行的操作:[/bold]")
-    preview_table = Table(show_header=True)
-    preview_table.add_column("源文件夹")
-    preview_table.add_column("识别时间戳")
-    preview_table.add_column("目标位置")
     
-    for op in operations:
-        preview_table.add_row(
-            op["folder"], 
-            op["timestamp"].strftime("%Y-%m-%d"), 
-            op["destination"]
-        )
+    # 创建根树
+    root_tree = Tree(f"[bold]{path}[/bold]")
     
-    console.print(preview_table)
+    # 预览前三个文件夹（如果有的话）
+    show_count = min(3, len(operations))
+    for i, op in enumerate(operations[:show_count]):
+        folder_node = root_tree.add(f"[yellow]{op['folder']}[/yellow] -> [green]{op['rel_destination']}[/green]")
+        folder_node.add(f"[blue]识别时间戳: {op['timestamp'].strftime('%Y-%m-%d')}[/blue]")
+    
+    # 如果有更多文件夹，显示省略信息
+    if len(operations) > show_count:
+        root_tree.add(f"[dim]... 还有 {len(operations) - show_count} 个文件夹 (详见 timeu_preview.json)[/dim]")
+    
+    # 打印树
+    rprint(root_tree)
     
     # 确认是否同步文件时间
     sync_time = Confirm.ask("是否同步文件时间？", default=True)
