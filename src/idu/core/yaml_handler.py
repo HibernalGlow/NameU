@@ -1,7 +1,5 @@
 import os
 import yaml
-import logging
-from typing import List, Any
 
 from loguru import logger
 
@@ -21,7 +19,7 @@ class YamlHandler:
                 if not isinstance(data, list):
                     data = [data] if data is not None else []
                 return data
-        except yaml.YAMLError as e:
+        except yaml.YAMLError:
             logger.error(f"YAML文件 {yaml_path} 已损坏，尝试修复...")
             return YamlHandler.repair_yaml_file(yaml_path)
         except Exception as e:

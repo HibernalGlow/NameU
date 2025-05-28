@@ -1,6 +1,4 @@
 from db_manager import DBManager
-import orjson
-import time
 
 DB_PATH = "E:/1BACKUP/ehv/uuid/artworks.db"  # 可根据实际情况调整路径
 

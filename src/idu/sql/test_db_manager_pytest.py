@@ -1,7 +1,6 @@
 import os
 import tempfile
 import orjson
-import pytest
 from db_manager import DBManager
 
 def make_test_db():

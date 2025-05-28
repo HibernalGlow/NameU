@@ -1,9 +1,8 @@
 import os
 import subprocess
 import shutil
-import logging
 import zipfile
-from typing import Dict, Any, Optional, List, Tuple
+from typing import Dict, Any, Optional, List
 
 # 导入本地模块
 from idu.core.json_handler import JsonHandler
@@ -139,7 +138,7 @@ class ArchiveHandler:
         except zipfile.BadZipFile:
             # 如果不是zip文件，尝试使用7z
             return ArchiveHandler._load_uuid_from_7z(archive_path, '.yaml')
-        except Exception as e:
+        except Exception:
             logger.error(f"[#process]读取压缩包失败: {archive_path}")
         return None
     

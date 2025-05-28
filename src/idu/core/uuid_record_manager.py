@@ -2,9 +2,7 @@ import os
 import json
 import shutil
 import yaml
-import logging
 from datetime import datetime
-from typing import Dict, Any
 
 from idu.core.json_handler import JsonHandler
 
@@ -64,7 +62,7 @@ class UuidRecordManager:
                     processed += 1
                     logger.info(f"[@current_progress]重组进度 {processed}/{total_records} ({(processed/total_records*100):.1f}%)")
                         
-                except ValueError as e:
+                except ValueError:
                     logger.error(f"[#process]❌ UUID {uuid} 的时间戳格式无效: {latest_timestamp}")
                     
         except Exception as e:

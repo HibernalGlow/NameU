@@ -1,17 +1,11 @@
 import os
 import sys
-import time
-import logging
 import argparse
 import pyperclip
-import threading
 import subprocess
-from pathlib import Path
-from typing import Dict, Any, Optional
 
 from idu.core.archive_processor import ArchiveProcessor
 from idu.core.uuid_record_manager import UuidRecordManager
-from idu.core.json_handler import JsonHandler
 from idu.core.path_handler import PathHandler
 from loguru import logger
 

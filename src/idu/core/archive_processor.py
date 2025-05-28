@@ -1,13 +1,8 @@
 import os
 import time
-import logging
 import shutil
-from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Dict, Any, Set, List, Tuple
-import asyncio
-from concurrent.futures import ProcessPoolExecutor
-import tempfile
+from typing import List
 
 from idu.core.archive_handler import ArchiveHandler
 from idu.core.json_handler import JsonHandler

@@ -1,13 +1,9 @@
 import os
 import sys
-import time
-import logging
 import argparse
 import pyperclip
-import threading
 import subprocess
 from pathlib import Path
-from typing import Dict, Any, Optional
 
 # 添加父目录到Python路径
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -18,12 +14,10 @@ from textual_preset import create_config_app
 from textual_logger import TextualLoggerManager
 from idu.core.archive_processor import ArchiveProcessor
 from idu.core.uuid_record_manager import UuidRecordManager
-from idu.core.json_handler import JsonHandler
 from idu.core.path_handler import PathHandler
 from loguru import logger
 import os
 import sys
-from pathlib import Path
 from datetime import datetime
 
 def setup_logger(app_name="app", project_root=None, console_output=True):

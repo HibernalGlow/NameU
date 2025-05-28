@@ -1,5 +1,4 @@
 import sqlite3
-import os
 from typing import Optional, Dict, Any
 from loguru import logger
 
