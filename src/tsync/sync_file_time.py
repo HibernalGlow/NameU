@@ -1,6 +1,7 @@
 import os
 import time
 from datetime import datetime
+from loguru import logger
 
 def sync_folder_file_time(folder_path, dt: datetime):
     ts = time.mktime(dt.timetuple())
@@ -10,4 +11,4 @@ def sync_folder_file_time(folder_path, dt: datetime):
             try:
                 os.utime(file_path, (ts, ts))
             except Exception as e:
-                print(f"同步文件时间失败: {file_path}，原因: {e}")
+                logger.error(f"同步文件时间失败: {file_path}，原因: {e}")

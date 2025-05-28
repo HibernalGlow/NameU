@@ -2,7 +2,7 @@ import os
 import shutil
 from datetime import datetime
 from rich.console import Console
-
+from loguru import logger
 console = Console()
 
 # 预定义格式 - 使用标准strftime格式
@@ -27,6 +27,7 @@ def archive_folder(src_folder, dt: datetime, base_dst, format_key='year_month', 
     dry_run: 预览模式，不实际移动文件
     """
     if format_key not in FORMATS:
+        logger.error(f'格式参数错误，支持的格式: {", ".join(FORMATS.keys())}')
         raise ValueError(f'格式参数错误，支持的格式: {", ".join(FORMATS.keys())}')
     
     # 使用strftime格式化路径
@@ -49,11 +50,14 @@ def archive_folder(src_folder, dt: datetime, base_dst, format_key='year_month', 
     dst_folder = os.path.join(dst, folder_name)
     
     if dry_run:
+        logger.debug(f"预览: 将 {src_folder} 移动到 {dst_folder}")
         console.print(f"[cyan]预览: 将 {src_folder} 移动到 {dst_folder}")
         return dst_folder
     
     if not os.path.exists(dst):
+        logger.debug(f"创建目录: {dst}")
         os.makedirs(dst)
     
+    logger.info(f"移动文件夹: {src_folder} -> {dst_folder}")
     shutil.move(src_folder, dst_folder)
     return dst_folder
