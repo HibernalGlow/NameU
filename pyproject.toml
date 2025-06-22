@@ -26,6 +26,8 @@ dependencies = [
     "nanoid",
     "pypinyin>=0.54.0",
     "toml>=0.10.2",
+    "tqdm>=4.67.1",
+    "charset-normalizer>=3.4.2",
 ]
 
 [project.optional-dependencies]
@@ -46,8 +48,6 @@ namer = "nameu.utils.namer:main"
 coveru = "coveru.__main__:main"
 idu = "idu.__main__:main"
 timeu = "timeu.__main__:main"
-snu = "snu.__main__:main"
-tsync = "tsync.__main__:main"
 [build-system]
 requires = ["setuptools>=61.0.0", "wheel"]
 build-backend = "setuptools.build_meta"
