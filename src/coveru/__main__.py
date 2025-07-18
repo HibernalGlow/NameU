@@ -220,6 +220,59 @@ def process_folder(root_folder, convert_format='jxl', no_convert=False):
         else:
             print(f"{sub_folder_path} 不是文件夹，跳过")
 
+def get_folders_from_user():
+    """
+    从用户获取文件夹路径列表。
+    支持以下输入格式：
+    - 带引号的路径（支持包含空格的路径）
+    - 多行输入，每行一个路径
+    - 空行作为输入结束符
+    
+    返回:
+    list: 有效的文件夹路径列表
+    """
+    import shlex
+    
+    print("请输入需要处理的文件夹路径：")
+    print("- 支持多行输入，每行一个路径")
+    print("- 路径包含空格时请用引号包围")
+    print("- 输入空行结束输入")
+    print()
+    
+    folders = []
+    line_number = 1
+    
+    while True:
+        try:
+            line = input(f"路径 {line_number}: ").strip()
+            if not line:  # 空行，结束输入
+                break
+            
+            # 使用shlex.split来正确处理带引号的路径
+            try:
+                parsed_paths = shlex.split(line)
+                for path in parsed_paths:
+                    if path.strip():
+                        folders.append(path.strip())
+            except ValueError as e:
+                print(f"路径解析错误: {e}")
+                print("请检查引号是否正确匹配")
+                continue
+            
+            line_number += 1
+            
+        except KeyboardInterrupt:
+            print("\n\n输入被中断")
+            break
+        except EOFError:
+            # 处理Ctrl+D或文件结束
+            break
+    
+    if not folders:
+        print("未输入任何路径")
+    
+    return folders
+
 def main():
     """
     主函数，提供命令行界面，支持以下功能：
@@ -240,8 +293,7 @@ def main():
     
     # 如果没有提供文件夹路径，则提示用户输入
     if not args.folders:
-        folder_input = input("请输入需要处理的根文件夹路径（多个路径用分号分隔）: ")
-        folders = [f.strip() for f in folder_input.split(';') if f.strip()]
+        folders = get_folders_from_user()
     else:
         folders = args.folders
     

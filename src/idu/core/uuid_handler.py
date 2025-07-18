@@ -1,7 +1,7 @@
 from nanoid import generate
-from idu.sql.db_manager import DBManager
+from ..sql.db_manager import DBManager
 from loguru import logger
-from idu.core.legacy_json_utils import load_existing_uuids_from_json
+from .legacy_json_utils import load_existing_uuids_from_json
 import os
 
 class UuidHandler:

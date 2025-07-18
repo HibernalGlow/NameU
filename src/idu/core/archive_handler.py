@@ -5,8 +5,8 @@ import zipfile
 from typing import Dict, Any, Optional, List
 
 # 导入本地模块
-from idu.core.json_handler import JsonHandler
-from idu.core.uuid_handler import UuidHandler
+from .json_handler import JsonHandler
+from .uuid_handler import UuidHandler
 
 from loguru import logger
 
@@ -129,12 +129,14 @@ class ArchiveHandler:
         # 首先检查压缩包完整性
         if not ArchiveHandler.check_archive_integrity(archive_path):
             return None
-            
+
         try:
             with zipfile.ZipFile(archive_path, 'r') as zf:
                 for name in zf.namelist():
                     if name.endswith('.yaml'):
-                        return os.path.splitext(name)[0]
+                        # 只提取文件名部分，忽略路径
+                        filename = os.path.basename(name)
+                        return os.path.splitext(filename)[0]
         except zipfile.BadZipFile:
             # 如果不是zip文件，尝试使用7z
             return ArchiveHandler._load_uuid_from_7z(archive_path, '.yaml')
@@ -149,7 +151,9 @@ class ArchiveHandler:
             with zipfile.ZipFile(archive_path, 'r') as zf:
                 for name in zf.namelist():
                     if name.endswith('.json'):
-                        return os.path.splitext(name)[0]
+                        # 只提取文件名部分，忽略路径
+                        filename = os.path.basename(name)
+                        return os.path.splitext(filename)[0]
         except zipfile.BadZipFile:
             # 如果不是zip文件，尝试使用7z
             return ArchiveHandler._load_uuid_from_7z(archive_path, '.json')
@@ -183,7 +187,9 @@ class ArchiveHandler:
                 if not line.strip():
                     continue
                 if line.endswith(ext):
-                    return os.path.splitext(line.split()[-1])[0]
+                    # 只提取文件名部分，忽略路径
+                    filename = os.path.basename(line.split()[-1])
+                    return os.path.splitext(filename)[0]
                     
         except Exception as e:
             logger.error(f"使用7z读取压缩包失败 {archive_path}: {e}")
@@ -237,31 +243,69 @@ class ArchiveHandler:
             bool: 是否添加成功
         """
         try:
-            # 尝试使用zipfile
-            with zipfile.ZipFile(archive_path, 'a') as zf:
-                # 如果存在同名文件，先删除
-                try:
-                    zf.remove(json_name)
-                except KeyError:
-                    pass
-                zf.write(json_path, json_name)
-                logger.info(f"[#process]添加JSON文件: {json_name}")
-                return True
-        except Exception:
-            # 如果zipfile失败，使用7z
+            # 检查压缩包结构
+            target_path = json_name
+            folder_structure = ArchiveHandler._analyze_folder_structure(archive_path)
+            
+            # 只对单文件夹结构进行特殊处理
+            if folder_structure == "single_folder":
+                single_folder = ArchiveHandler._get_single_folder_name(archive_path)
+                if single_folder:
+                    target_path = f"{single_folder}/{json_name}"
+            
+            # 优先使用7z，因为它更可靠
             try:
-                # 使用7z u命令更新文件
+                if folder_structure == "single_folder":
+                    single_folder = ArchiveHandler._get_single_folder_name(archive_path)
+                    if single_folder:
+                        # 使用7z的-spf参数指定存储路径
+                        subprocess.run(
+                            ['7z', 'u', archive_path, json_path, f"-spf{single_folder}/"],
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                            check=True
+                        )
+                        logger.info(f"[#process]添加JSON文件: {single_folder}/{json_name}")
+                        return True
+                
+                # 普通结构或无文件夹结构直接添加
                 subprocess.run(
-                    ['7z', 'u', archive_path, json_path, f"-w{os.path.dirname(json_path)}"],
+                    ['7z', 'u', archive_path, json_path],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                     check=True
                 )
-                logger.info(f"[#process]添加JSON文件: {json_name}{archive_path}")
+                logger.info(f"[#process]添加JSON文件: {json_name}")
                 return True
+                
             except subprocess.CalledProcessError:
-                logger.error(f"[#process]添加JSON文件失败: {json_name} {archive_path}")
-                return False
+                # 7z失败时回退到zipfile
+                # 由于zipfile不支持直接删除文件，我们需要重新创建压缩包
+                temp_zip_path = archive_path + ".temp"
+                try:
+                    with zipfile.ZipFile(archive_path, 'r') as old_zf:
+                        with zipfile.ZipFile(temp_zip_path, 'w') as new_zf:
+                            # 复制所有文件，除了要替换的文件
+                            for item in old_zf.infolist():
+                                if item.filename != target_path:
+                                    data = old_zf.read(item.filename)
+                                    new_zf.writestr(item, data)
+                            # 添加新的JSON文件
+                            new_zf.write(json_path, target_path)
+
+                    # 替换原文件
+                    os.replace(temp_zip_path, archive_path)
+                    logger.info(f"[#process]添加JSON文件: {target_path}")
+                    return True
+                except Exception as e:
+                    # 清理临时文件
+                    if os.path.exists(temp_zip_path):
+                        os.remove(temp_zip_path)
+                    raise e
+                    
+        except Exception as e:
+            logger.error(f"[#process]添加JSON文件失败: {json_name} {archive_path} - {e}")
+            return False
 
     @staticmethod
     def convert_yaml_archive_to_json(archive_path: str) -> Optional[Dict[str, Any]]:
@@ -342,3 +386,85 @@ class ArchiveHandler:
         except Exception as e:
             logger.error(f"[#process]转换失败 {os.path.basename(archive_path)}: {str(e)}")
             return None
+
+    @staticmethod
+    def _analyze_folder_structure(archive_path: str) -> str:
+        """分析压缩包的文件夹结构
+        
+        Returns:
+            str: "no_folder" | "single_folder" | "multiple_folders"
+        """
+        try:
+            with zipfile.ZipFile(archive_path, 'r') as zf:
+                root_items = set()
+                for name in zf.namelist():
+                    if '/' in name:
+                        root_items.add(name.split('/')[0])
+                    else:
+                        root_items.add('')  # 根目录文件
+                
+                if '' in root_items:
+                    return "no_folder" if len(root_items) == 1 else "multiple_folders"
+                elif len(root_items) == 1:
+                    return "single_folder"
+                else:
+                    return "multiple_folders"
+        except Exception:
+            # 使用7z分析
+            try:
+                result = subprocess.run(
+                    ['7z', 'l', archive_path],
+                    capture_output=True,
+                    text=True,
+                    encoding='gbk',
+                    errors='ignore',
+                    check=True
+                )
+                root_items = set()
+                for line in result.stdout.splitlines():
+                    if line.strip() and not line.startswith('-') and not line.startswith('Date'):
+                        parts = line.split()
+                        if len(parts) >= 6:
+                            name = parts[-1]
+                            if '/' in name or '\\' in name:
+                                root_items.add(name.split('/')[0].split('\\')[0])
+                            else:
+                                root_items.add('')
+                
+                if '' in root_items:
+                    return "no_folder" if len(root_items) == 1 else "multiple_folders"
+                elif len(root_items) == 1:
+                    return "single_folder"
+                else:
+                    return "multiple_folders"
+            except Exception:
+                return "no_folder"
+
+    @staticmethod
+    def _get_single_folder_name(archive_path: str) -> Optional[str]:
+        """获取单文件夹结构中的文件夹名称"""
+        try:
+            with zipfile.ZipFile(archive_path, 'r') as zf:
+                for name in zf.namelist():
+                    if '/' in name:
+                        return name.split('/')[0]
+        except Exception:
+            try:
+                result = subprocess.run(
+                    ['7z', 'l', archive_path],
+                    capture_output=True,
+                    text=True,
+                    encoding='gbk',
+                    errors='ignore',
+                    check=True
+                )
+                for line in result.stdout.splitlines():
+                    if line.strip() and not line.startswith('-') and not line.startswith('Date'):
+                        parts = line.split()
+                        if len(parts) >= 6:
+                            name = parts[-1]
+                            if '/' in name or '\\' in name:
+                                return name.split('/')[0].split('\\')[0]
+            except Exception:
+                pass
+        return None
