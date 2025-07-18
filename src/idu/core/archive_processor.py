@@ -125,59 +125,54 @@ class ArchiveProcessor:
         Returns:
             tuple: (有效JSON文件列表[(文件名, JSON内容)], YAML文件列表[文件名], 所有JSON文件列表[文件名])
         """
-        import zipfile
         import subprocess
         import orjson
-        
+
         valid_json_files = []
         yaml_files = []
         all_json_files = []  # 存储所有JSON文件，包括无效的
-        
+
         try:
-            # 尝试使用zipfile
-            with zipfile.ZipFile(archive_path, 'r') as zf:
-                for name in zf.namelist():
-                    if name.endswith('.json'):
-                        all_json_files.append(name)
+            # 使用7z列出文件
+            result = subprocess.run(
+                ['7z', 'l', archive_path],
+                capture_output=True,
+                text=True,
+                encoding='gbk',
+                errors='ignore',
+                check=True
+            )
+
+            # 提取临时目录
+            temp_dir = os.path.join(os.path.dirname(archive_path), '.temp_extract')
+            os.makedirs(temp_dir, exist_ok=True)
+
+            try:
+                # 提取所有JSON和YAML文件
+                subprocess.run(
+                    ['7z', 'e', archive_path, '*.json', '*.yaml', f"-o{temp_dir}"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=True
+                )
+
+                # 处理JSON文件
+                for file in os.listdir(temp_dir):
+                    if file.endswith('.json'):
+                        all_json_files.append(file)
                         try:
-                            with zf.open(name) as f:
+                            with open(os.path.join(temp_dir, file), 'rb') as f:
                                 json_content = orjson.loads(f.read())
                                 if "uuid" in json_content and "timestamps" in json_content:
-                                    valid_json_files.append((name, json_content))
+                                    valid_json_files.append((file, json_content))
                         except Exception:
                             continue
-                    elif name.endswith('.yaml'):
-                        yaml_files.append(name)
-        except zipfile.BadZipFile:
-            # 如果不是zip文件，使用7z
-            try:
-                temp_dir = os.path.join(os.path.dirname(archive_path), '.temp_extract')
-                os.makedirs(temp_dir, exist_ok=True)
-                try:
-                    # 提取所有JSON和YAML文件
-                    subprocess.run(
-                        ['7z', 'e', archive_path, '*.json', '*.yaml', f"-o{temp_dir}"],
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                        check=True
-                    )
-                    # 处理JSON文件
-                    for file in os.listdir(temp_dir):
-                        if file.endswith('.json'):
-                            all_json_files.append(file)
-                            try:
-                                with open(os.path.join(temp_dir, file), 'rb') as f:
-                                    json_content = orjson.loads(f.read())
-                                    if "uuid" in json_content and "timestamps" in json_content:
-                                        valid_json_files.append((file, json_content))
-                            except Exception:
-                                continue
-                        elif file.endswith('.yaml'):
-                            yaml_files.append(file)
-                finally:
-                    shutil.rmtree(temp_dir, ignore_errors=True)
-            except subprocess.CalledProcessError:
-                pass
+                    elif file.endswith('.yaml'):
+                        yaml_files.append(file)
+            finally:
+                shutil.rmtree(temp_dir, ignore_errors=True)
+        except subprocess.CalledProcessError:
+            pass
                 
         return valid_json_files, yaml_files, all_json_files
     

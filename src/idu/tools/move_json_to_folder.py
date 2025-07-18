@@ -6,9 +6,9 @@
 
 import os
 import sys
-import zipfile
 import tempfile
 import shutil
+import subprocess
 from pathlib import Path
 from typing import List, Tuple, Optional
 
@@ -19,16 +19,28 @@ from idu.core.archive_handler import ArchiveHandler
 def find_root_json_files(archive_path: str) -> List[str]:
     """查找压缩包根目录的JSON文件"""
     json_files = []
-    
+
     try:
-        with zipfile.ZipFile(archive_path, 'r') as zf:
-            for name in zf.namelist():
-                # 只查找根目录的JSON文件（不包含路径分隔符）
-                if name.endswith('.json') and '/' not in name:
-                    json_files.append(name)
+        result = subprocess.run(
+            ['7z', 'l', archive_path],
+            capture_output=True,
+            text=True,
+            encoding='gbk',
+            errors='ignore',
+            check=True
+        )
+
+        for line in result.stdout.splitlines():
+            if line.strip() and not line.startswith('-') and not line.startswith('Date'):
+                parts = line.split()
+                if len(parts) >= 6:
+                    name = parts[-1]
+                    # 只查找根目录的JSON文件（不包含路径分隔符）
+                    if name.endswith('.json') and '/' not in name and '\\' not in name:
+                        json_files.append(name)
     except Exception as e:
         print(f"❌ 读取压缩包失败: {e}")
-    
+
     return json_files
 
 
@@ -76,44 +88,57 @@ def move_json_to_folder(archive_path: str, backup: bool = True) -> bool:
             print(f"   ❌ 备份失败：{e}")
             return False
     
-    # 5. 重建压缩包
-    temp_zip_path = archive_path + ".temp"
-    
+    # 5. 使用7z处理文件移动
+    temp_dir = tempfile.mkdtemp()
+
     try:
-        with zipfile.ZipFile(archive_path, 'r') as old_zf:
-            with zipfile.ZipFile(temp_zip_path, 'w', compression=zipfile.ZIP_DEFLATED) as new_zf:
-                
-                # 复制所有非根目录JSON文件
-                for item in old_zf.infolist():
-                    if item.filename not in root_json_files:
-                        data = old_zf.read(item.filename)
-                        new_zf.writestr(item, data)
-                
-                # 将根目录JSON文件移动到文件夹内
-                for json_file in root_json_files:
-                    data = old_zf.read(json_file)
-                    new_path = f"{folder_name}/{json_file}"
-                    
-                    # 创建新的ZipInfo
-                    new_info = zipfile.ZipInfo(new_path)
-                    new_info.external_attr = 0o644 << 16  # 设置文件权限
-                    
-                    new_zf.writestr(new_info, data)
-                    print(f"   📁 移动：{json_file} -> {new_path}")
-        
-        # 替换原文件
-        os.replace(temp_zip_path, archive_path)
+        # 提取所有JSON文件
+        for json_file in root_json_files:
+            subprocess.run(
+                ['7z', 'e', archive_path, json_file, f"-o{temp_dir}"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=True
+            )
+
+        # 删除原压缩包中的根目录JSON文件
+        for json_file in root_json_files:
+            subprocess.run(
+                ['7z', 'd', archive_path, json_file],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=True
+            )
+
+        # 创建目标文件夹结构并移动文件
+        folder_temp_dir = os.path.join(temp_dir, folder_name)
+        os.makedirs(folder_temp_dir, exist_ok=True)
+
+        for json_file in root_json_files:
+            src_path = os.path.join(temp_dir, json_file)
+            dst_path = os.path.join(folder_temp_dir, json_file)
+            if os.path.exists(src_path):
+                shutil.move(src_path, dst_path)
+                print(f"   📁 移动：{json_file} -> {folder_name}/{json_file}")
+
+        # 将文件夹添加回压缩包
+        subprocess.run(
+            ['7z', 'a', archive_path, folder_temp_dir],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=True
+        )
+
         print(f"   ✅ 完成：{os.path.basename(archive_path)}")
         return True
-        
+
     except Exception as e:
         print(f"   ❌ 处理失败：{e}")
-        
-        # 清理临时文件
-        if os.path.exists(temp_zip_path):
-            os.remove(temp_zip_path)
-        
         return False
+
+    finally:
+        # 清理临时目录
+        shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 def process_directory(directory: str, backup: bool = True) -> Tuple[int, int]:

@@ -2,7 +2,6 @@ import subprocess
 import os
 import sys
 import json
-import zipfile
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 import fnmatch
@@ -28,20 +27,31 @@ except ImportError:
         def _analyze_folder_structure(archive_path: str) -> str:
             """分析压缩包的文件夹结构"""
             try:
-                with zipfile.ZipFile(archive_path, 'r') as zf:
-                    root_items = set()
-                    for name in zf.namelist():
-                        if '/' in name:
-                            root_items.add(name.split('/')[0])
-                        else:
-                            root_items.add('')  # 根目录文件
+                result = subprocess.run(
+                    ['7z', 'l', archive_path],
+                    capture_output=True,
+                    text=True,
+                    encoding='gbk',
+                    errors='ignore',
+                    check=True
+                )
+                root_items = set()
+                for line in result.stdout.splitlines():
+                    if line.strip() and not line.startswith('-') and not line.startswith('Date'):
+                        parts = line.split()
+                        if len(parts) >= 6:
+                            name = parts[-1]
+                            if '/' in name or '\\' in name:
+                                root_items.add(name.split('/')[0].split('\\')[0])
+                            else:
+                                root_items.add('')
 
-                    if '' in root_items:
-                        return "no_folder" if len(root_items) == 1 else "multiple_folders"
-                    elif len(root_items) == 1:
-                        return "single_folder"
-                    else:
-                        return "multiple_folders"
+                if '' in root_items:
+                    return "no_folder" if len(root_items) == 1 else "multiple_folders"
+                elif len(root_items) == 1:
+                    return "single_folder"
+                else:
+                    return "multiple_folders"
             except Exception:
                 return "no_folder"
 
@@ -100,13 +110,27 @@ def check_archive_conditions(archive_path: str) -> tuple:
         root_files = []
         target_extensions = ['.json', '.log', '.txt', '.yaml']
 
-        with zipfile.ZipFile(archive_path, 'r') as zf:
-            for name in zf.namelist():
-                # 只检查根目录文件（不包含路径分隔符）
-                if '/' not in name:
-                    file_ext = Path(name).suffix.lower()
-                    if file_ext in target_extensions:
-                        root_files.append(name)
+        try:
+            result = subprocess.run(
+                ['7z', 'l', archive_path],
+                capture_output=True,
+                text=True,
+                encoding='gbk',
+                errors='ignore',
+                check=True
+            )
+            for line in result.stdout.splitlines():
+                if line.strip() and not line.startswith('-') and not line.startswith('Date'):
+                    parts = line.split()
+                    if len(parts) >= 6:
+                        name = parts[-1]
+                        # 只检查根目录文件（不包含路径分隔符）
+                        if '/' not in name and '\\' not in name:
+                            file_ext = Path(name).suffix.lower()
+                            if file_ext in target_extensions:
+                                root_files.append(name)
+        except subprocess.CalledProcessError:
+            pass
 
         # 4. 只有根目录存在目标文件才符合条件
         return len(root_files) > 0, structure, root_files

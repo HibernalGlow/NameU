@@ -3,8 +3,8 @@
 
 import os
 import tempfile
-import zipfile
 import shutil
+import subprocess
 
 def test_uuid_extraction():
     """测试UUID提取逻辑"""
@@ -13,25 +13,51 @@ def test_uuid_extraction():
     try:
         # 测试无文件夹结构
         zip_path = os.path.join(temp_dir, "test_no_folder.zip")
-        with zipfile.ZipFile(zip_path, 'w') as zf:
-            zf.writestr("abc123.json", '{"test": true}')
-            zf.writestr("file.txt", "content")
-        
+
+        # 创建临时文件
+        json_file = os.path.join(temp_dir, "abc123.json")
+        txt_file = os.path.join(temp_dir, "file.txt")
+
+        with open(json_file, 'w') as f:
+            f.write('{"test": true}')
+        with open(txt_file, 'w') as f:
+            f.write("content")
+
+        subprocess.run(['7z', 'a', zip_path, json_file, txt_file],
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
         # 测试单文件夹结构
         zip_path_folder = os.path.join(temp_dir, "test_folder.zip")
-        with zipfile.ZipFile(zip_path_folder, 'w') as zf:
-            zf.writestr("folder1/abc123.json", '{"test": true}')
-            zf.writestr("folder1/file.txt", "content")
-        
+
+        # 创建文件夹结构
+        folder_path = os.path.join(temp_dir, "folder1")
+        os.makedirs(folder_path, exist_ok=True)
+
+        json_file_folder = os.path.join(folder_path, "abc123.json")
+        txt_file_folder = os.path.join(folder_path, "file.txt")
+
+        with open(json_file_folder, 'w') as f:
+            f.write('{"test": true}')
+        with open(txt_file_folder, 'w') as f:
+            f.write("content")
+
+        subprocess.run(['7z', 'a', zip_path_folder, folder_path],
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
         # 模拟修复后的UUID读取逻辑
         def load_json_uuid_from_archive(archive_path):
             try:
-                with zipfile.ZipFile(archive_path, 'r') as zf:
-                    for name in zf.namelist():
-                        if name.endswith('.json'):
-                            # 只提取文件名部分，忽略路径
-                            filename = os.path.basename(name)
-                            return os.path.splitext(filename)[0]
+                result = subprocess.run(['7z', 'l', archive_path],
+                                      capture_output=True, text=True, encoding='gbk', errors='ignore')
+                for line in result.stdout.splitlines():
+                    if line.strip() and not line.startswith('-') and not line.startswith('Date'):
+                        parts = line.split()
+                        if len(parts) >= 6:
+                            name = parts[-1]
+                            if name.endswith('.json'):
+                                # 只提取文件名部分，忽略路径
+                                filename = os.path.basename(name)
+                                return os.path.splitext(filename)[0]
             except Exception as e:
                 print(f"读取失败: {e}")
             return None

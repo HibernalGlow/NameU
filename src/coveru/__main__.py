@@ -1,5 +1,4 @@
 import os
-import zipfile
 import shutil
 import subprocess
 from pathlib import Path
@@ -130,47 +129,63 @@ def extract_first_image_from_zip(zip_path, destination_folder, convert_format='j
     no_convert (bool): 是否跳过格式转换。
     """
     try:
-        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            image_files = sorted([f for f in zip_ref.namelist() if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp', '.avif', '.jxl'))])
-            if image_files:
-                first_image = image_files[0]
-                zip_ref.extract(first_image, destination_folder)                # Move the image to the destination folder root
-                extracted_path = os.path.join(destination_folder, first_image)
-                
-                # 获取一级文件夹名称作为前缀
-                folder_name = os.path.basename(destination_folder)
-                original_filename = os.path.basename(first_image)
-                name, ext = os.path.splitext(original_filename)
-                
-                # 添加前缀 (#cover)(文件夹名)
-                new_filename = f"(#cover)({folder_name}){ext}"
-                final_path = os.path.join(destination_folder, new_filename)
-                
-                shutil.move(extracted_path, final_path)
-                
-                # 检查提取的图片是否需要转换
-                ext = Path(final_path).suffix.lower()
-                if not no_convert and ext not in ['.jxl', '.avif']:
-                    if convert_format == 'jxl':
-                        print(f"正在将图片转换为JXL: {final_path}")
-                        final_path = convert_to_jxl(final_path)
-                    elif convert_format == 'avif':
-                        print(f"正在将图片转换为AVIF: {final_path}")
-                        final_path = convert_to_avif(final_path)
-                
-                # 清理多余的目录结构
-                extracted_dir = os.path.dirname(extracted_path)
-                while extracted_dir != destination_folder:
-                    try:
-                        os.rmdir(extracted_dir)
-                    except OSError as e:
-                        if e.errno == 145:  # 目录不是空的
-                            break
-                        else:
-                            raise
-                    extracted_dir = os.path.dirname(extracted_dir)
-    except zipfile.BadZipFile:
-        print(f"损坏的压缩包: {zip_path}")
+        # 使用7z列出压缩包中的文件
+        result = subprocess.run(
+            ['7z', 'l', zip_path],
+            capture_output=True,
+            text=True,
+            encoding='gbk',
+            errors='ignore',
+            check=True
+        )
+
+        # 查找图片文件
+        image_files = []
+        for line in result.stdout.splitlines():
+            if line.strip() and not line.startswith('-') and not line.startswith('Date'):
+                parts = line.split()
+                if len(parts) >= 6:
+                    filename = parts[-1]
+                    if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.webp', '.avif', '.jxl')):
+                        image_files.append(filename)
+
+        if image_files:
+            image_files.sort()
+            first_image = image_files[0]
+
+            # 使用7z提取第一张图片
+            subprocess.run(
+                ['7z', 'e', zip_path, first_image, f"-o{destination_folder}"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=True
+            )
+
+            extracted_path = os.path.join(destination_folder, os.path.basename(first_image))
+
+            # 获取一级文件夹名称作为前缀
+            folder_name = os.path.basename(destination_folder)
+            original_filename = os.path.basename(first_image)
+            name, ext = os.path.splitext(original_filename)
+
+            # 添加前缀 (#cover)(文件夹名)
+            new_filename = f"(#cover)({folder_name}){ext}"
+            final_path = os.path.join(destination_folder, new_filename)
+
+            shutil.move(extracted_path, final_path)
+
+            # 检查提取的图片是否需要转换
+            ext = Path(final_path).suffix.lower()
+            if not no_convert and ext not in ['.jxl', '.avif']:
+                if convert_format == 'jxl':
+                    print(f"正在将图片转换为JXL: {final_path}")
+                    final_path = convert_to_jxl(final_path)
+                elif convert_format == 'avif':
+                    print(f"正在将图片转换为AVIF: {final_path}")
+                    final_path = convert_to_avif(final_path)
+
+    except subprocess.CalledProcessError:
+        print(f"无法处理压缩包: {zip_path}")
 
 def process_folder(root_folder, convert_format='jxl', no_convert=False):
     """

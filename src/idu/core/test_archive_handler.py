@@ -1,9 +1,9 @@
 import os
 import tempfile
-import zipfile
 import shutil
 import pytest
 import sys
+import subprocess
 from unittest.mock import patch, MagicMock
 
 
@@ -26,22 +26,45 @@ class TestArchiveHandler:
         """创建测试用的zip文件"""
         zip_path = os.path.join(self.temp_dir, "test.zip")
         json_path = os.path.join(self.temp_dir, "test.json")
-        
+
         with open(json_path, 'w') as f:
             f.write(self.test_json_content)
-        
-        with zipfile.ZipFile(zip_path, 'w') as zf:
-            if structure_type == "no_folder":
-                zf.write(json_path, "file1.txt")
-                zf.write(json_path, "file2.txt")
-            elif structure_type == "single_folder":
-                zf.write(json_path, "folder1/file1.txt")
-                zf.write(json_path, "folder1/file2.txt")
-            elif structure_type == "multiple_folders":
-                zf.write(json_path, "folder1/file1.txt")
-                zf.write(json_path, "folder2/file2.txt")
-        
-        os.remove(json_path)
+
+        # 创建目录结构
+        if structure_type == "no_folder":
+            # 直接添加文件到根目录
+            shutil.copy(json_path, os.path.join(self.temp_dir, "file1.txt"))
+            shutil.copy(json_path, os.path.join(self.temp_dir, "file2.txt"))
+            subprocess.run(['7z', 'a', zip_path, os.path.join(self.temp_dir, "file1.txt"), os.path.join(self.temp_dir, "file2.txt")],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        elif structure_type == "single_folder":
+            # 创建单文件夹结构
+            folder_path = os.path.join(self.temp_dir, "folder1")
+            os.makedirs(folder_path, exist_ok=True)
+            shutil.copy(json_path, os.path.join(folder_path, "file1.txt"))
+            shutil.copy(json_path, os.path.join(folder_path, "file2.txt"))
+            subprocess.run(['7z', 'a', zip_path, folder_path],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        elif structure_type == "multiple_folders":
+            # 创建多文件夹结构
+            folder1_path = os.path.join(self.temp_dir, "folder1")
+            folder2_path = os.path.join(self.temp_dir, "folder2")
+            os.makedirs(folder1_path, exist_ok=True)
+            os.makedirs(folder2_path, exist_ok=True)
+            shutil.copy(json_path, os.path.join(folder1_path, "file1.txt"))
+            shutil.copy(json_path, os.path.join(folder2_path, "file2.txt"))
+            subprocess.run(['7z', 'a', zip_path, folder1_path, folder2_path],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+        # 清理临时文件
+        for file in os.listdir(self.temp_dir):
+            if file != "test.zip":
+                path = os.path.join(self.temp_dir, file)
+                if os.path.isfile(path):
+                    os.remove(path)
+                elif os.path.isdir(path):
+                    shutil.rmtree(path)
+
         return zip_path
     
     def test_check_archive_integrity(self):
@@ -85,9 +108,17 @@ class TestArchiveHandler:
         zip_path = os.path.join(self.temp_dir, "test.zip")
         yaml_content = "test: true"
 
-        with zipfile.ZipFile(zip_path, 'w') as zf:
-            zf.writestr("test-uuid.yaml", yaml_content)
-            zf.writestr("other.txt", "content")
+        # 创建临时文件
+        yaml_file = os.path.join(self.temp_dir, "test-uuid.yaml")
+        other_file = os.path.join(self.temp_dir, "other.txt")
+
+        with open(yaml_file, 'w') as f:
+            f.write(yaml_content)
+        with open(other_file, 'w') as f:
+            f.write("content")
+
+        subprocess.run(['7z', 'a', zip_path, yaml_file, other_file],
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
         uuid = ArchiveHandler.load_yaml_uuid_from_archive(zip_path)
         assert uuid == "test-uuid"
@@ -97,9 +128,20 @@ class TestArchiveHandler:
         zip_path = os.path.join(self.temp_dir, "test.zip")
         yaml_content = "test: true"
 
-        with zipfile.ZipFile(zip_path, 'w') as zf:
-            zf.writestr("folder1/test-uuid.yaml", yaml_content)
-            zf.writestr("folder1/other.txt", "content")
+        # 创建文件夹结构
+        folder_path = os.path.join(self.temp_dir, "folder1")
+        os.makedirs(folder_path, exist_ok=True)
+
+        yaml_file = os.path.join(folder_path, "test-uuid.yaml")
+        other_file = os.path.join(folder_path, "other.txt")
+
+        with open(yaml_file, 'w') as f:
+            f.write(yaml_content)
+        with open(other_file, 'w') as f:
+            f.write("content")
+
+        subprocess.run(['7z', 'a', zip_path, folder_path],
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
         uuid = ArchiveHandler.load_yaml_uuid_from_archive(zip_path)
         assert uuid == "test-uuid"  # 应该只返回文件名部分，不包含路径
@@ -108,9 +150,17 @@ class TestArchiveHandler:
         """测试从压缩包加载JSON UUID"""
         zip_path = os.path.join(self.temp_dir, "test.zip")
 
-        with zipfile.ZipFile(zip_path, 'w') as zf:
-            zf.writestr("test-uuid.json", self.test_json_content)
-            zf.writestr("other.txt", "content")
+        # 创建临时文件
+        json_file = os.path.join(self.temp_dir, "test-uuid.json")
+        other_file = os.path.join(self.temp_dir, "other.txt")
+
+        with open(json_file, 'w') as f:
+            f.write(self.test_json_content)
+        with open(other_file, 'w') as f:
+            f.write("content")
+
+        subprocess.run(['7z', 'a', zip_path, json_file, other_file],
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
         uuid = ArchiveHandler.load_json_uuid_from_archive(zip_path)
         assert uuid == "test-uuid"
@@ -119,9 +169,20 @@ class TestArchiveHandler:
         """测试从单文件夹结构压缩包加载JSON UUID"""
         zip_path = os.path.join(self.temp_dir, "test.zip")
 
-        with zipfile.ZipFile(zip_path, 'w') as zf:
-            zf.writestr("folder1/test-uuid.json", self.test_json_content)
-            zf.writestr("folder1/other.txt", "content")
+        # 创建文件夹结构
+        folder_path = os.path.join(self.temp_dir, "folder1")
+        os.makedirs(folder_path, exist_ok=True)
+
+        json_file = os.path.join(folder_path, "test-uuid.json")
+        other_file = os.path.join(folder_path, "other.txt")
+
+        with open(json_file, 'w') as f:
+            f.write(self.test_json_content)
+        with open(other_file, 'w') as f:
+            f.write("content")
+
+        subprocess.run(['7z', 'a', zip_path, folder_path],
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
         uuid = ArchiveHandler.load_json_uuid_from_archive(zip_path)
         assert uuid == "test-uuid"  # 应该只返回文件名部分，不包含路径
@@ -130,31 +191,31 @@ class TestArchiveHandler:
         """测试添加JSON到无文件夹结构的压缩包"""
         zip_path = self.create_test_zip("no_folder")
         json_path = os.path.join(self.temp_dir, "new.json")
-        
+
         with open(json_path, 'w') as f:
             f.write(self.test_json_content)
-        
+
         result = ArchiveHandler.add_json_to_archive(zip_path, json_path, "new.json")
         assert result == True
-        
+
         # 验证文件被添加到根目录
-        with zipfile.ZipFile(zip_path, 'r') as zf:
-            assert "new.json" in zf.namelist()
-    
+        result = subprocess.run(['7z', 'l', zip_path], capture_output=True, text=True)
+        assert "new.json" in result.stdout
+
     def test_add_json_to_archive_single_folder(self):
         """测试添加JSON到单文件夹结构的压缩包"""
         zip_path = self.create_test_zip("single_folder")
         json_path = os.path.join(self.temp_dir, "new.json")
-        
+
         with open(json_path, 'w') as f:
             f.write(self.test_json_content)
-        
+
         result = ArchiveHandler.add_json_to_archive(zip_path, json_path, "new.json")
         assert result == True
-        
+
         # 验证文件被添加到文件夹内
-        with zipfile.ZipFile(zip_path, 'r') as zf:
-            assert "folder1/new.json" in zf.namelist()
+        result = subprocess.run(['7z', 'l', zip_path], capture_output=True, text=True)
+        assert "folder1/new.json" in result.stdout or "folder1\\new.json" in result.stdout
     
     def test_add_json_to_archive_multiple_folders(self):
         """测试添加JSON到多文件夹结构的压缩包"""
@@ -168,8 +229,8 @@ class TestArchiveHandler:
         assert result == True
         
         # 验证文件被添加到根目录
-        with zipfile.ZipFile(zip_path, 'r') as zf:
-            assert "new.json" in zf.namelist()
+        result = subprocess.run(['7z', 'l', zip_path], capture_output=True, text=True)
+        assert "new.json" in result.stdout
     
     @patch('subprocess.run')
     def test_delete_files_from_archive_success(self, mock_run):
