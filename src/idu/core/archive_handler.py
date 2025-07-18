@@ -246,62 +246,78 @@ class ArchiveHandler:
             # 检查压缩包结构
             target_path = json_name
             folder_structure = ArchiveHandler._analyze_folder_structure(archive_path)
-            
+            logger.info(f"[#process]压缩包结构分析: {folder_structure} - {os.path.basename(archive_path)}")
+
             # 只对单文件夹结构进行特殊处理
             if folder_structure == "single_folder":
                 single_folder = ArchiveHandler._get_single_folder_name(archive_path)
+                logger.info(f"[#process]检测到单文件夹: {single_folder} - {os.path.basename(archive_path)}")
                 if single_folder:
                     target_path = f"{single_folder}/{json_name}"
+                    logger.info(f"[#process]目标路径设置为: {target_path} - {os.path.basename(archive_path)}")
             
-            # 优先使用7z，因为它更可靠
-            try:
-                if folder_structure == "single_folder":
-                    single_folder = ArchiveHandler._get_single_folder_name(archive_path)
-                    if single_folder:
-                        # 使用7z的-spf参数指定存储路径
-                        subprocess.run(
-                            ['7z', 'u', archive_path, json_path, f"-spf{single_folder}/"],
-                            stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL,
-                            check=True
-                        )
-                        logger.info(f"[#process]添加JSON文件: {single_folder}/{json_name}")
-                        return True
-                
-                # 普通结构或无文件夹结构直接添加
-                subprocess.run(
-                    ['7z', 'u', archive_path, json_path],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    check=True
-                )
-                logger.info(f"[#process]添加JSON文件: {json_name}")
-                return True
-                
-            except subprocess.CalledProcessError:
-                # 7z失败时回退到zipfile
-                # 由于zipfile不支持直接删除文件，我们需要重新创建压缩包
-                temp_zip_path = archive_path + ".temp"
-                try:
-                    with zipfile.ZipFile(archive_path, 'r') as old_zf:
-                        with zipfile.ZipFile(temp_zip_path, 'w') as new_zf:
-                            # 复制所有文件，除了要替换的文件
-                            for item in old_zf.infolist():
-                                if item.filename != target_path:
-                                    data = old_zf.read(item.filename)
-                                    new_zf.writestr(item, data)
-                            # 添加新的JSON文件
-                            new_zf.write(json_path, target_path)
+            # 优先使用zipfile，因为它更可控
+            logger.info(f"[#process]使用zipfile方式添加JSON文件 - {os.path.basename(archive_path)}")
 
-                    # 替换原文件
-                    os.replace(temp_zip_path, archive_path)
-                    logger.info(f"[#process]添加JSON文件: {target_path}")
+            # 由于zipfile不支持直接删除文件，我们需要重新创建压缩包
+            temp_zip_path = archive_path + ".temp"
+            try:
+                with zipfile.ZipFile(archive_path, 'r') as old_zf:
+                    with zipfile.ZipFile(temp_zip_path, 'w') as new_zf:
+                        # 复制所有文件，除了要替换的文件
+                        for item in old_zf.infolist():
+                            if item.filename != target_path:
+                                data = old_zf.read(item.filename)
+                                new_zf.writestr(item, data)
+                        # 添加新的JSON文件
+                        new_zf.write(json_path, target_path)
+                        logger.info(f"[#process]JSON文件已写入路径: {target_path}")
+
+                # 替换原文件
+                os.replace(temp_zip_path, archive_path)
+                logger.info(f"[#process]添加JSON文件成功: {target_path}")
+                return True
+            except Exception as e:
+                # 清理临时文件
+                if os.path.exists(temp_zip_path):
+                    os.remove(temp_zip_path)
+                logger.error(f"[#process]zipfile方式失败: {e}")
+
+                # 回退到7z方式
+                try:
+                    if folder_structure == "single_folder":
+                        single_folder = ArchiveHandler._get_single_folder_name(archive_path)
+                        if single_folder:
+                            # 创建临时目录结构
+                            temp_dir = os.path.join(os.path.dirname(json_path), 'temp_7z')
+                            os.makedirs(os.path.join(temp_dir, single_folder), exist_ok=True)
+                            temp_json_path = os.path.join(temp_dir, single_folder, json_name)
+                            shutil.copy2(json_path, temp_json_path)
+
+                            # 使用7z添加整个目录结构
+                            subprocess.run(
+                                ['7z', 'u', archive_path, os.path.join(temp_dir, single_folder)],
+                                stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL,
+                                check=True
+                            )
+                            shutil.rmtree(temp_dir, ignore_errors=True)
+                            logger.info(f"[#process]7z方式添加JSON文件: {single_folder}/{json_name}")
+                            return True
+
+                    # 普通结构或无文件夹结构直接添加
+                    subprocess.run(
+                        ['7z', 'u', archive_path, json_path],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        check=True
+                    )
+                    logger.info(f"[#process]7z方式添加JSON文件: {json_name}")
                     return True
-                except Exception as e:
-                    # 清理临时文件
-                    if os.path.exists(temp_zip_path):
-                        os.remove(temp_zip_path)
-                    raise e
+                except subprocess.CalledProcessError as e:
+                    logger.error(f"[#process]7z方式也失败: {e}")
+                    return False
+
                     
         except Exception as e:
             logger.error(f"[#process]添加JSON文件失败: {json_name} {archive_path} - {e}")

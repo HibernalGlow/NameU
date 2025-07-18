@@ -197,6 +197,9 @@ class ArchiveProcessor:
             bool: 处理是否成功
         """
         json_name, json_content = json_file
+        # 只提取文件名部分，忽略路径
+        json_filename = os.path.basename(json_name)
+
         # 检查是否需要更新
         if not JsonHandler.check_and_update_record(json_content, archive_name, artist_name, relative_path, timestamp):
             return True
@@ -213,10 +216,10 @@ class ArchiveProcessor:
             json_str = orjson.dumps(updated_json).decode('utf-8')
         # 直接用分层目录保存json
         day_dir = PathHandler.get_uuid_path(self.uuid_directory, timestamp)
-        json_path = os.path.join(day_dir, json_name)
+        json_path = os.path.join(day_dir, json_filename)  # 使用文件名而不是原始路径
         os.makedirs(os.path.dirname(json_path), exist_ok=True)
         if JsonHandler.save(json_path, updated_json):
-            if ArchiveHandler.add_json_to_archive(archive_path, json_path, json_name):
+            if ArchiveHandler.add_json_to_archive(archive_path, json_path, json_filename):  # 传递文件名
                 logger.info(f"[#update]✅ 已更新压缩包中的JSON记录: {archive_name}")
                 uuid = updated_json.get('uuid', '')
                 self._write_sqlite_and_json(

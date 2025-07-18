@@ -28,6 +28,9 @@ dependencies = [
     "toml>=0.10.2",
     "tqdm>=4.67.1",
     "charset-normalizer>=3.4.2",
+    "PyYAML>=6.0",
+    "pyperclip>=1.8.0",
+    "pytest>=8.3.5",
 ]
 
 [project.optional-dependencies]
@@ -51,6 +54,14 @@ timeu = "timeu.__main__:main"
 [build-system]
 requires = ["setuptools>=61.0.0", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["*"]
+exclude = ["tests*"]
 
 [tool.black]
 line-length = 88
