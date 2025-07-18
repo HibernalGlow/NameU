@@ -24,6 +24,8 @@ dependencies = [
     "pangu",
     "pywin32",
     "nanoid",
+    # IDSet依赖
+    "sqlmodel>=0.0.8",
     "pypinyin>=0.54.0",
     "toml>=0.10.2",
     "tqdm>=4.67.1",

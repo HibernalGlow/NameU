@@ -5,6 +5,12 @@ import pyperclip
 import subprocess
 from pathlib import Path
 
+# 强制设置标准输出编码为UTF-8，避免中文乱码
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
+if hasattr(sys.stderr, 'reconfigure'):
+    sys.stderr.reconfigure(encoding='utf-8')
+
 # 添加父目录到Python路径
 script_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(os.path.dirname(script_dir))
@@ -45,7 +51,8 @@ def setup_logger(app_name="app", project_root=None, console_output=True):
         logger.add(
             sys.stdout,
             level="INFO",
-            format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <blue>{elapsed}</blue> | <level>{level.icon} {level: <8}</level> | <cyan>{name}:{function}:{line}</cyan> - <level>{message}</level>"
+            format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <blue>{elapsed}</blue> | <level>{level.icon} {level: <8}</level> | <cyan>{name}:{function}:{line}</cyan> - <level>{message}</level>",
+            encoding="utf-8"
         )
     
     # 使用 datetime 构建日志路径
@@ -66,7 +73,7 @@ def setup_logger(app_name="app", project_root=None, console_output=True):
         rotation="10 MB",
         retention="30 days",
         compression="zip",
-        encoding="utf-8",
+        # encoding="utf-8",
         format="{time:YYYY-MM-DD HH:mm:ss} | {elapsed} | {level.icon} {level: <8} | {name}:{function}:{line} - {message}",
         enqueue=True,     )
     
@@ -279,7 +286,7 @@ class TaskExecutor:
                 check=True,
                 capture_output=True,
                 text=True,
-                encoding='gbk',
+                encoding='utf-8',
                 errors='ignore',
                 startupinfo=startupinfo
             )
