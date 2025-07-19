@@ -88,7 +88,11 @@ class ArchiveIDManager:
             metadata = {
                 'artist_name': artist_name,
                 'file_path': new_path,
-                'rename_method': 'nameu'
+                'rename_method': 'nameu',
+                'operation_type': 'rename',
+                'source': 'nameu_system',
+                'file_size': self._get_file_size(new_path),
+                'file_extension': os.path.splitext(new_name)[1].lower()
             }
             
             success = self.db.update_archive_name(
@@ -260,6 +264,58 @@ class ArchiveIDManager:
             bool: 是否更新成功
         """
         return ArchiveIDHandler.update_comment_metadata(archive_path, metadata)
+
+    def _get_file_size(self, file_path: str) -> Optional[int]:
+        """
+        获取文件大小
+
+        Args:
+            file_path: 文件路径
+
+        Returns:
+            Optional[int]: 文件大小（字节），失败返回None
+        """
+        try:
+            return os.path.getsize(file_path)
+        except Exception as e:
+            logger.warning(f"获取文件大小失败 {file_path}: {e}")
+            return None
+
+    def get_complete_archive_metadata(self, archive_id: str) -> Optional[Dict[str, Any]]:
+        """
+        获取压缩包的完整历史元数据
+
+        Args:
+            archive_id: 压缩包ID
+
+        Returns:
+            Optional[Dict[str, Any]]: 完整的历史元数据
+        """
+        return self.db.get_complete_archive_metadata(archive_id)
+
+    def get_archive_name_history(self, archive_id: str) -> List[Dict[str, Any]]:
+        """
+        获取压缩包的名称变更历史
+
+        Args:
+            archive_id: 压缩包ID
+
+        Returns:
+            List[Dict[str, Any]]: 名称变更历史列表
+        """
+        return self.db.get_archive_name_history(archive_id)
+
+    def get_archive_statistics(self, archive_id: str) -> Optional[Dict[str, Any]]:
+        """
+        获取压缩包的统计信息
+
+        Args:
+            archive_id: 压缩包ID
+
+        Returns:
+            Optional[Dict[str, Any]]: 统计信息
+        """
+        return self.db.get_archive_statistics(archive_id)
     
     def get_statistics(self) -> Dict[str, Any]:
         """

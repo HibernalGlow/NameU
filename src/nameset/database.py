@@ -220,54 +220,215 @@ class ArchiveDatabase:
             logger.error(f"创建压缩包记录失败: {e}")
             return False
     
-    def update_archive_name(self, archive_id: str, new_name: str, old_name: Optional[str] = None, 
+    def update_archive_name(self, archive_id: str, new_name: str, old_name: Optional[str] = None,
                           reason: str = "nameu重命名", metadata: Optional[Dict] = None) -> bool:
         """
         更新压缩包名称并记录历史
-        
+
         Args:
             archive_id: 压缩包ID
             new_name: 新文件名
             old_name: 旧文件名
             reason: 修改原因
             metadata: 额外的元数据
-            
+
         Returns:
             bool: 是否更新成功
         """
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
-                
+
                 # 获取当前名称
                 if not old_name:
                     cursor.execute('SELECT current_name FROM archive_info WHERE id = ?', (archive_id,))
                     result = cursor.fetchone()
                     if result:
                         old_name = result[0]
-                
+
                 # 更新当前名称
                 cursor.execute('''
-                    UPDATE archive_info 
-                    SET current_name = ?, updated_at = CURRENT_TIMESTAMP 
+                    UPDATE archive_info
+                    SET current_name = ?, updated_at = CURRENT_TIMESTAMP
                     WHERE id = ?
                 ''', (new_name, archive_id))
-                
+
+                # 构建完整的历史元数据
+                complete_metadata = self._build_complete_metadata(archive_id, metadata)
+
                 # 添加历史记录
-                metadata_json = json.dumps(metadata) if metadata else None
+                metadata_json = json.dumps(complete_metadata, ensure_ascii=False) if complete_metadata else None
                 cursor.execute('''
                     INSERT INTO archive_history (archive_id, old_name, new_name, reason, metadata)
                     VALUES (?, ?, ?, ?, ?)
                 ''', (archive_id, old_name, new_name, reason, metadata_json))
-                
+
                 conn.commit()
-                
+
             logger.info(f"更新压缩包名称: {archive_id} {old_name} -> {new_name}")
             return True
-            
+
         except Exception as e:
             logger.error(f"更新压缩包名称失败: {e}")
             return False
+
+    def _build_complete_metadata(self, archive_id: str, current_metadata: Optional[Dict] = None) -> Dict[str, Any]:
+        """
+        构建包含完整历史信息的元数据
+
+        Args:
+            archive_id: 压缩包ID
+            current_metadata: 当前操作的元数据
+
+        Returns:
+            Dict[str, Any]: 完整的元数据，包含所有历史信息
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+
+                # 获取基本信息
+                cursor.execute('''
+                    SELECT current_name, artist_name, created_at, file_path, file_hash
+                    FROM archive_info WHERE id = ?
+                ''', (archive_id,))
+                info_result = cursor.fetchone()
+
+                # 获取所有历史记录
+                cursor.execute('''
+                    SELECT old_name, new_name, reason, metadata, timestamp
+                    FROM archive_history
+                    WHERE archive_id = ?
+                    ORDER BY timestamp ASC
+                ''', (archive_id,))
+                history_results = cursor.fetchall()
+
+                # 构建完整元数据
+                complete_metadata = {
+                    'archive_id': archive_id,
+                    'first_created_at': info_result[2] if info_result else None,
+                    'current_timestamp': datetime.now().isoformat(),
+                    'basic_info': {
+                        'current_name': info_result[0] if info_result else None,
+                        'artist_name': info_result[1] if info_result else None,
+                        'file_path': info_result[3] if info_result else None,
+                        'file_hash': info_result[4] if info_result else None
+                    },
+                    'name_history': [],
+                    'operation_history': [],
+                    'current_operation': current_metadata or {}
+                }
+
+                # 添加历史记录
+                for record in history_results:
+                    old_name, new_name, reason, metadata_str, timestamp = record
+
+                    # 名称变更历史
+                    if old_name and old_name != new_name:
+                        complete_metadata['name_history'].append({
+                            'from': old_name,
+                            'to': new_name,
+                            'timestamp': timestamp,
+                            'reason': reason
+                        })
+
+                    # 操作历史
+                    operation_record = {
+                        'timestamp': timestamp,
+                        'reason': reason,
+                        'old_name': old_name,
+                        'new_name': new_name
+                    }
+
+                    # 解析历史元数据
+                    if metadata_str:
+                        try:
+                            historical_metadata = json.loads(metadata_str)
+                            operation_record['metadata'] = historical_metadata
+                        except:
+                            operation_record['metadata_raw'] = metadata_str
+
+                    complete_metadata['operation_history'].append(operation_record)
+
+                # 统计信息
+                complete_metadata['statistics'] = {
+                    'total_operations': len(history_results),
+                    'total_renames': len([r for r in history_results if r[0] and r[0] != r[1]]),
+                    'unique_names': len(set([r[1] for r in history_results if r[1]])),
+                    'first_operation': history_results[0][4] if history_results else None,
+                    'last_operation': history_results[-1][4] if history_results else None
+                }
+
+                return complete_metadata
+
+        except Exception as e:
+            logger.error(f"构建完整元数据失败: {e}")
+            return current_metadata or {}
+
+    def get_complete_archive_metadata(self, archive_id: str) -> Optional[Dict[str, Any]]:
+        """
+        获取压缩包的完整历史元数据
+
+        Args:
+            archive_id: 压缩包ID
+
+        Returns:
+            Optional[Dict[str, Any]]: 完整的历史元数据，未找到返回None
+        """
+        try:
+            # 获取最新的历史记录中的完整元数据
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT metadata FROM archive_history
+                    WHERE archive_id = ? AND metadata IS NOT NULL
+                    ORDER BY timestamp DESC
+                    LIMIT 1
+                ''', (archive_id,))
+
+                result = cursor.fetchone()
+                if result and result[0]:
+                    try:
+                        return json.loads(result[0])
+                    except:
+                        logger.warning(f"解析元数据失败: {archive_id}")
+
+                # 如果没有历史记录，构建基础元数据
+                return self._build_complete_metadata(archive_id)
+
+        except Exception as e:
+            logger.error(f"获取完整元数据失败: {e}")
+            return None
+
+    def get_archive_name_history(self, archive_id: str) -> List[Dict[str, Any]]:
+        """
+        获取压缩包的名称变更历史（简化版本）
+
+        Args:
+            archive_id: 压缩包ID
+
+        Returns:
+            List[Dict[str, Any]]: 名称变更历史列表
+        """
+        complete_metadata = self.get_complete_archive_metadata(archive_id)
+        if complete_metadata and 'name_history' in complete_metadata:
+            return complete_metadata['name_history']
+        return []
+
+    def get_archive_statistics(self, archive_id: str) -> Optional[Dict[str, Any]]:
+        """
+        获取压缩包的统计信息
+
+        Args:
+            archive_id: 压缩包ID
+
+        Returns:
+            Optional[Dict[str, Any]]: 统计信息，未找到返回None
+        """
+        complete_metadata = self.get_complete_archive_metadata(archive_id)
+        if complete_metadata and 'statistics' in complete_metadata:
+            return complete_metadata['statistics']
+        return None
     
     def get_archive_history(self, archive_id: str, limit: int = 10) -> List[Dict[str, Any]]:
         """

@@ -7,7 +7,7 @@
 			"command": "python",
 			"args": [
 				"-m",
-				"src.nameset.examples"
+				"nameset.examples"
 			],
 			"group": "test",
 			"isBackground": false,

@@ -35,25 +35,34 @@ def setup_logger(app_name="app", project_root=None, console_output=True):
         try:
             # 获取消息内容
             message = record["message"]
+            formatted_message = ""
+
             # 根据消息内容做特殊处理
             if "重命名:" in message:
-                return process_rename_message(message)
+                formatted_message = process_rename_message(message)
             elif "出错" in message.lower() or "error" in message.lower():
-                return process_error_message(message)
+                formatted_message = process_error_message(message)
             elif record["level"].name == "INFO":
-                return f"<green>✅ {message}</green>"
+                formatted_message = f"<green>✅ {message}</green>"
             elif record["level"].name == "WARNING":
-                return f"<yellow>⚠️ {message}</yellow>"
+                formatted_message = f"<yellow>⚠️ {message}</yellow>"
             elif record["level"].name == "ERROR":
-                return f"<red>❌ {message}</red>"
+                formatted_message = f"<red>❌ {message}</red>"
             else:
-                return f"<white>ℹ️ {message}</white>"
-        except Exception as e:
+                formatted_message = f"<white>ℹ️ {message}</white>"
+
+            # 确保每条消息都以换行符结尾
+            if formatted_message and not formatted_message.endswith('\n'):
+                formatted_message += '\n'
+
+            return formatted_message
+
+        except Exception:
             # 如果格式化过程中出现任何错误，返回一个安全的字符串
             try:
-                return f"<white>ℹ️ {str(message)[:100]}...</white>"
+                return f"<white>ℹ️ {str(message)[:100]}...</white>\n"
             except:
-                return "<white>ℹ️ [日志格式化错误]</white>"
+                return "<white>ℹ️ [日志格式化错误]</white>\n"
       # 有条件地添加控制台处理器
     if console_output:
         logger.add(
@@ -95,54 +104,54 @@ def setup_logger(app_name="app", project_root=None, console_output=True):
 
 def process_rename_message(message):
     """处理重命名消息的格式化
-    
+
     Args:
         message: 包含重命名信息的消息
-        
+
     Returns:
         str: 格式化后的消息
     """
     global _last_rename_message
-    
+
     # 如果消息完全相同，跳过显示
     if message == _last_rename_message:
         return ""
-    
+
     _last_rename_message = message
-    
+
     # 转义可能在文件名中出现的花括号 {} - 防止被当作格式化占位符处理
     message = message.replace("{", "{{").replace("}", "}}")
-    
+
     # 提取原始路径和新路径
     try:
         parts = message.split(" -> ", 1)  # 最多分割一次，以防文件名中包含 " -> "
         if len(parts) != 2:
             return f"<cyan>🔄 {message}</cyan>"
-            
+
         old_path, new_path = parts
         old_path = old_path.replace("重命名: ", "")
-        
+
         # 分离路径和文件名
         old_dir, old_name = os.path.split(old_path)
         new_dir, new_name = os.path.split(new_path)
-        
+
         # 如果路径相同，只显示文件名的差异
         if old_dir == new_dir:
             return highlight_diff(old_name, new_name)
         else:
             # 如果路径不同，使用更安全的格式
             return f"🔄 从 '{old_path}' 到 '{new_path}'"
-    except Exception as e:
+    except Exception:
         # 如果解析失败，返回安全的原始消息，避免格式化问题
         return f"<cyan>🔄 重命名操作已完成</cyan>"
 
 
 def process_error_message(message):
     """处理错误消息的格式化
-    
+
     Args:
         message: 包含错误信息的消息
-        
+
     Returns:
         str: 格式化后的消息
     """
@@ -167,11 +176,11 @@ def process_error_message(message):
 
 def highlight_diff(old_str, new_str):
     """使用 difflib 高亮显示字符串差异
-    
+
     Args:
         old_str: 原始字符串
         new_str: 新字符串
-        
+
     Returns:
         str: 包含高亮差异的Markdown格式字符串
     """
@@ -179,14 +188,14 @@ def highlight_diff(old_str, new_str):
         # 转义花括号，防止格式化错误
         old_str_escaped = old_str.replace("{", "{{").replace("}", "}}")
         new_str_escaped = new_str.replace("{", "{{").replace("}", "}}")
-        
+
         # 简化处理方式，不再逐字符比较
         if old_str == new_str:
             return f"🔄 {old_str_escaped}"
-            
+
         # 使用更安全的方式展示变化
         return f"🔄 <s><red>{old_str_escaped}</red></s> → <b><green>{new_str_escaped}</green></b>"
-    except Exception as e:
+    except Exception:
         # 如果出现异常，返回一个安全的字符串
         return f"🔄 从 '{old_str}' 重命名为 '{new_str}'"
 
