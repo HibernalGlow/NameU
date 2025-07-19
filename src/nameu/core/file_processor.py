@@ -12,6 +12,14 @@ from .filename_processor import (
     check_sensitive_word, get_sensitive_words_in_filename, get_unique_filename_with_pinyin_conversion
 )
 
+# 导入压缩包ID管理模块
+try:
+    from nameset.integration import process_file_with_id_tracking
+    ID_TRACKING_AVAILABLE = True
+except ImportError:
+    logger.warning("压缩包ID管理模块不可用，将使用传统重命名方式")
+    ID_TRACKING_AVAILABLE = False
+
 def process_files_in_directory(directory, artist_name, add_artist_name_enabled=True, convert_sensitive_enabled=True):
     """
     处理目录下的所有文件
@@ -75,11 +83,29 @@ def process_files_in_directory(directory, artist_name, add_artist_name_enabled=T
                 new_file_path = os.path.join(directory, new_filename)
                 
                 try:
-                    # 重命名文件
-                    os.rename(original_file_path, new_file_path)
+                    # 检查是否为压缩文件并且启用了ID跟踪
+                    is_archive = original_file_path.lower().endswith(ARCHIVE_EXTENSIONS)
                     
-                    # 恢复时间戳
-                    os.utime(new_file_path, (original_stat.st_atime, original_stat.st_mtime))
+                    if is_archive and ID_TRACKING_AVAILABLE:
+                        # 使用ID跟踪的重命名方式
+                        success = process_file_with_id_tracking(
+                            original_file_path, 
+                            new_filename, 
+                            artist_name if artist_name not in exclude_keywords else None
+                        )
+                        if success:
+                            new_file_path = os.path.join(directory, new_filename)
+                        else:
+                            logger.error(f"ID跟踪重命名失败，回退到传统方式: {filename}")
+                            # 回退到传统重命名方式
+                            os.rename(original_file_path, new_file_path)
+                    else:
+                        # 传统重命名方式
+                        os.rename(original_file_path, new_file_path)
+                    
+                    # 恢复时间戳（对于传统方式）
+                    if not (is_archive and ID_TRACKING_AVAILABLE):
+                        os.utime(new_file_path, (original_stat.st_atime, original_stat.st_mtime))
                     
                     try:
                         # 尝试获取相对路径以便更清晰的日志显示

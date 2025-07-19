@@ -8,7 +8,7 @@ from colorama import init, Fore, Style
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 # 导入自定义模块
-from textual_preset import create_config_app
+from nameu.vokein import vokein
 from nameu.core.logger_config import setup_logger
 from nameu.core.constants import ARCHIVE_EXTENSIONS
 from nameu.core.file_processor import (
@@ -24,53 +24,8 @@ add_artist_name_enabled = True
 logger, config_info = setup_logger(app_name="nameu", console_output=True)
 
 def main():
-    """主函数"""
-    # 定义复选框选项
-    checkbox_options = [
-        ("无画师模式 - 不添加画师名后缀", "no_artist", "--no-artist"),
-        ("保持时间戳 - 保持文件的修改时间", "keep_timestamp", "--keep-timestamp", True),
-        ("多画师模式 - 处理整个目录", "multi_mode", "--mode multi"),
-        ("单画师模式 - 只处理单个画师的文件夹", "single_mode", "--mode single"),
-        ("从剪贴板读取路径", "clipboard", "-c", True),  # 默认开启
-        ("敏感词转拼音 - 将文件名中的敏感词转换为拼音", "convert_sensitive", "--convert-sensitive", False),  # 默认开启
-    ]
-
-    # 定义输入框选项
-    input_options = [
-        ("路径", "path", "--path", "", "输入要处理的路径，留空使用默认路径"),
-    ]    # 预设配置
-    preset_configs = {
-        "标准多画师": {
-            "description": "标准多画师模式，会添加画师名后缀",
-            "checkbox_options": ["keep_timestamp", "multi_mode", "clipboard"],
-            "input_values": {"path": ""}
-        },
-        "标准单画师": {
-            "description": "标准单画师模式，会添加画师名后缀", 
-            "checkbox_options": ["keep_timestamp", "single_mode", "clipboard"],
-            "input_values": {"path": ""}
-        },
-        "无画师模式": {
-            "description": "不添加画师名后缀的重命名模式",
-            "checkbox_options": ["no_artist", "keep_timestamp", "clipboard"],
-            "input_values": {"path": ""}
-        },
-        "无敏感词转换": {
-            "description": "不将敏感词转换为拼音的模式",
-            "checkbox_options": ["keep_timestamp", "multi_mode", "clipboard"],
-            "input_values": {"path": ""}
-        }
-    }
-
-    # 创建并运行配置界面
-    app = create_config_app(
-        program=__file__,
-        checkbox_options=checkbox_options,
-        input_options=input_options,
-        title="自动唯一文件名工具",
-        preset_configs=preset_configs
-    )
-    app.run()
+    """主函数 - 启动 vokein 任务选择器"""
+    return vokein()
 
 if __name__ == "__main__":
     # 设置日志
