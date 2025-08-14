@@ -1,0 +1,22 @@
+version: '3'
+
+tasks:
+  standard_multi:
+    desc: 标准多画师模式 - 会添加画师名后缀
+    cmds:
+      - python -m nameu --mode multi --clipboard --keep-timestamp
+
+  standard_single:
+    desc: 标准单画师模式 - 会添加画师名后缀
+    cmds:
+      - python -m nameu --mode single --clipboard --keep-timestamp
+
+  no_artist_mode:
+    desc: 无画师模式 - 不添加画师名后缀的重命名模式
+    cmds:
+      - python -m nameu --no-artist --clipboard --keep-timestamp
+
+  no_sensitive_convert:
+    desc: 无敏感词转换 - 不将敏感词转换为拼音的模式
+    cmds:
+      - python -m nameu --mode multi --clipboard --keep-timestamp --no-convert-sensitive
