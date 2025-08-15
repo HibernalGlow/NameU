@@ -1,6 +1,7 @@
 import os
 import shutil
 import subprocess
+import zipfile
 from pathlib import Path
 from PIL import Image
 import pillow_avif
@@ -128,6 +129,11 @@ def extract_first_image_from_zip(zip_path, destination_folder, convert_format='j
     convert_format (str): 转换的目标格式，'jxl' 或 'avif'。
     no_convert (bool): 是否跳过格式转换。
     """
+    # 首先尝试使用 7z（性能/兼容路径更好），失败时回退到 Python 的 zipfile
+    image_exts = ('.png', '.jpg', '.jpeg', '.webp', '.avif', '.jxl')
+    first_image = None
+    extracted_path = None
+
     try:
         # 使用7z列出压缩包中的文件
         result = subprocess.run(
@@ -146,7 +152,7 @@ def extract_first_image_from_zip(zip_path, destination_folder, convert_format='j
                 parts = line.split()
                 if len(parts) >= 6:
                     filename = parts[-1]
-                    if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.webp', '.avif', '.jxl')):
+                    if filename.lower().endswith(image_exts):
                         image_files.append(filename)
 
         if image_files:
@@ -163,29 +169,93 @@ def extract_first_image_from_zip(zip_path, destination_folder, convert_format='j
 
             extracted_path = os.path.join(destination_folder, os.path.basename(first_image))
 
-            # 获取一级文件夹名称作为前缀
-            folder_name = os.path.basename(destination_folder)
-            original_filename = os.path.basename(first_image)
-            name, ext = os.path.splitext(original_filename)
+            # 如果提取后文件不存在，触发后续回退逻辑
+            if not os.path.exists(extracted_path):
+                extracted_path = None
 
-            # 添加前缀 (#cover)(文件夹名)
-            new_filename = f"(#cover)({folder_name}){ext}"
-            final_path = os.path.join(destination_folder, new_filename)
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        # 7z 不可用或调用失败，回退到 zipfile
+        extracted_path = None
 
+    # 如果 7z 未能获取到文件路径，则使用 zipfile 回退
+    if extracted_path is None:
+        try:
+            with zipfile.ZipFile(zip_path, 'r') as zf:
+                # 过滤出图片文件
+                candidates = [n for n in zf.namelist() if n.lower().endswith(image_exts)]
+                if not candidates:
+                    # 无图片，直接返回
+                    return
+                candidates.sort()
+                first_image = candidates[0]
+
+                # 安全提取为目标文件夹的 basename（防止路径穿越或目录结构）
+                original_basename = os.path.basename(first_image)
+                target_path = os.path.join(destination_folder, original_basename)
+
+                # 读取并写入到目标文件
+                with zf.open(first_image) as src, open(target_path, 'wb') as dst:
+                    shutil.copyfileobj(src, dst)
+
+                extracted_path = target_path
+        except Exception:
+            print(f"无法处理压缩包: {zip_path}")
+            return
+
+    # 到这里 extracted_path 已存在且指向提取出的文件
+    if extracted_path and os.path.exists(extracted_path):
+        # 获取一级文件夹名称作为前缀
+        folder_name = os.path.basename(destination_folder)
+        original_filename = os.path.basename(extracted_path)
+        name, ext = os.path.splitext(original_filename)
+
+        # 添加前缀 (#cover)(文件夹名)
+        new_filename = f"(#cover)({folder_name}){ext}"
+        final_path = os.path.join(destination_folder, new_filename)
+
+        # 如果目标文件已经存在，选择覆盖
+        try:
+            if os.path.exists(final_path):
+                os.remove(final_path)
             shutil.move(extracted_path, final_path)
+        except Exception as e:
+            print(f"移动提取文件失败: {e}")
+            return
 
-            # 检查提取的图片是否需要转换
-            ext = Path(final_path).suffix.lower()
-            if not no_convert and ext not in ['.jxl', '.avif']:
-                if convert_format == 'jxl':
-                    print(f"正在将图片转换为JXL: {final_path}")
-                    final_path = convert_to_jxl(final_path)
-                elif convert_format == 'avif':
-                    print(f"正在将图片转换为AVIF: {final_path}")
-                    final_path = convert_to_avif(final_path)
+        # 检查提取的图片是否需要转换
+        ext = Path(final_path).suffix.lower()
+        if not no_convert and ext not in ['.jxl', '.avif']:
+            if convert_format == 'jxl':
+                print(f"正在将图片转换为JXL: {final_path}")
+                final_path = convert_to_jxl(final_path)
+            elif convert_format == 'avif':
+                print(f"正在将图片转换为AVIF: {final_path}")
+                final_path = convert_to_avif(final_path)
 
-    except subprocess.CalledProcessError:
-        print(f"无法处理压缩包: {zip_path}")
+def folder_contains_image(folder_path):
+    """
+    判断文件夹（仅当前层级）是否包含图片文件或已生成的封面文件。
+    返回 True/False。
+    """
+    from pathlib import Path as _P
+    image_exts = {'.png', '.jpg', '.jpeg', '.webp', '.avif', '.jxl'}
+    try:
+        with os.scandir(folder_path) as it:
+            for entry in it:
+                # 只检测常规文件（忽略子目录）
+                if not entry.is_file():
+                    continue
+                name = entry.name
+                # 如果已经有脚本生成的封面文件，认为文件夹已包含图片
+                if '(#cover)(' in name:
+                    return True
+                # 检查扩展名
+                if _P(name).suffix.lower() in image_exts:
+                    return True
+    except Exception:
+        # 读取目录失败时，返回 False 以便上层能够尝试后续处理
+        return False
+    return False
 
 def process_folder(root_folder, convert_format='jxl', no_convert=False):
     """
@@ -200,8 +270,8 @@ def process_folder(root_folder, convert_format='jxl', no_convert=False):
         # 检查是否为隐藏文件夹
         if not os.path.basename(root_folder).startswith('.') and not os.path.basename(root_folder).startswith('{'):
             # 检查当前文件夹是否包含图片
-            contains_image = any(file.lower().endswith(('.png', '.jpg', '.jpeg', '.webp', '.avif', '.jxl')) for file in os.listdir(root_folder))
-            
+            contains_image = folder_contains_image(root_folder)
+
             if not contains_image:
                 largest_zip = get_largest_zip(root_folder)
                 if largest_zip:
@@ -221,7 +291,7 @@ def process_folder(root_folder, convert_format='jxl', no_convert=False):
             # 检查是否为隐藏文件夹
             if not sub_folder.startswith('.') and not sub_folder.startswith('{'):
                 # 检查当前文件夹是否包含图片
-                contains_image = any(file.lower().endswith(('.png', '.jpg', '.jpeg', '.webp', '.avif', '.jxl')) for file in os.listdir(sub_folder_path))
+                contains_image = folder_contains_image(sub_folder_path)
                 if not contains_image:
                     largest_zip = get_largest_zip(sub_folder_path)
                     if largest_zip:
