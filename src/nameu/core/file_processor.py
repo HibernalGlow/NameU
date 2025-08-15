@@ -54,6 +54,20 @@ def process_files_in_directory(directory, artist_name, add_artist_name_enabled=T
     
     # 先检查是否有需要修改的文件
     files_to_modify = []
+    # 统计：未改名但补写ID
+    auto_ids_created = 0
+    auto_db_records_created = 0
+
+    # 准备可复用的管理器（减少频繁打开）
+    if ID_TRACKING_AVAILABLE:
+        try:
+            from nameset.manager import ArchiveIDManager as _ArchiveIDManager
+            _manager = _ArchiveIDManager()
+        except ImportError:
+            _manager = None
+    else:
+        _manager = None
+
     for filename in files:
         original_file_path = os.path.join(directory, filename)
         filename = detect_and_decode_filename(filename)
@@ -83,7 +97,7 @@ def process_files_in_directory(directory, artist_name, add_artist_name_enabled=T
         if rename_needed:
             files_to_modify.append((filename, final_filename, original_file_path))
         else:
-            # 文件名无需修改，但仍需确保压缩包已写入ID注释
+            # 文件名无需修改，但仍需确保压缩包已写入ID注释并同步数据库
             if ID_TRACKING_AVAILABLE and _ArchiveIDHandler and original_file_path.lower().endswith(ARCHIVE_EXTENSIONS):
                 try:
                     comment = _ArchiveIDHandler.get_archive_comment(original_file_path)
@@ -99,11 +113,41 @@ def process_files_in_directory(directory, artist_name, add_artist_name_enabled=T
                             }
                         )
                         if created_id:
+                            auto_ids_created += 1
                             logger.info(f"为未改名文件补写ID: {os.path.basename(original_file_path)} -> {created_id}")
+                            existing_id = created_id
                         else:
                             logger.warning(f"未能为未改名文件写入ID: {original_file_path}")
+                    # 同步数据库记录（无论是新ID还是已有ID，若DB缺失记录则创建）
+                    if existing_id and _manager:
+                        try:
+                            info = _manager.get_archive_info(existing_id)
+                            if not info:
+                                if _manager.db.create_archive_record(
+                                    existing_id,
+                                    original_file_path,
+                                    os.path.basename(original_file_path),
+                                    artist_name if artist_name not in exclude_keywords else None
+                                ):
+                                    auto_db_records_created += 1
+                                    logger.debug(f"数据库补建记录: {existing_id}")
+                        except Exception as db_e:
+                            logger.error(f"补建数据库记录失败 {original_file_path}: {db_e}")
                 except Exception as e:
                     logger.error(f"补写ID时出错 {original_file_path}: {e}")
+
+    # 输出统计信息（仅当前目录作用域）
+    if (auto_ids_created + auto_db_records_created) > 0:
+        logger.info(
+            f"未改名补写统计 -> 新建ID: {auto_ids_created} 个, 数据库补建记录: {auto_db_records_created} 个 (目录: {directory})"
+        )
+
+    # 关闭管理器
+    if ID_TRACKING_AVAILABLE and '_manager' in locals() and _manager:
+        try:
+            _manager.close()
+        except Exception:
+            pass
 
     # 如果有文件需要修改，显示进度条并处理
     if files_to_modify:
