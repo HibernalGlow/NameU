@@ -11,21 +11,14 @@ from .manager import ArchiveIDManager
 from .id_handler import ArchiveIDHandler
 
 
-# 全局管理器实例
-_global_manager: Optional[ArchiveIDManager] = None
-
-
 def get_manager() -> ArchiveIDManager:
     """
-    获取全局管理器实例
+    获取全局管理器实例（单例模式）
     
     Returns:
         ArchiveIDManager: 管理器实例
     """
-    global _global_manager
-    if _global_manager is None:
-        _global_manager = ArchiveIDManager()
-    return _global_manager
+    return ArchiveIDManager.get_instance()
 
 
 def process_file_with_id_tracking(file_path: str, new_name: str, artist_name: Optional[str] = None) -> bool:
@@ -46,16 +39,16 @@ def process_file_with_id_tracking(file_path: str, new_name: str, artist_name: Op
             logger.debug(f"跳过非压缩文件: {file_path}")
             return False
         
-        # 为每次调用创建独立的管理器实例
-        with ArchiveIDManager() as manager:
-            success, archive_id = manager.process_archive_rename(file_path, new_name, artist_name)
-            
-            if success and archive_id:
-                logger.info(f"文件处理成功: {new_name} (ID: {archive_id})")
-                return True
-            else:
-                logger.error(f"文件处理失败: {file_path}")
-                return False
+        # 使用全局单例实例
+        manager = get_manager()
+        success, archive_id = manager.process_archive_rename(file_path, new_name, artist_name)
+        
+        if success and archive_id:
+            logger.info(f"文件处理成功: {new_name} (ID: {archive_id})")
+            return True
+        else:
+            logger.error(f"文件处理失败: {file_path}")
+            return False
                 
     except Exception as e:
         logger.error(f"处理文件时出错 {file_path}: {e}")

@@ -11,6 +11,11 @@ from .database import ArchiveDatabase
 from .id_handler import ArchiveIDHandler
 
 
+# 全局单例实例
+_global_manager: Optional['ArchiveIDManager'] = None
+_global_manager_lock = False
+
+
 class ArchiveIDManager:
     """压缩包ID管理器主类"""
     
@@ -28,7 +33,41 @@ class ArchiveIDManager:
         
         self.db = ArchiveDatabase(db_path)
         self.db_path = db_path
-        logger.info(f"压缩包ID管理器初始化完成，数据库: {db_path}")
+        # logger.info(f"压缩包ID管理器初始化完成，数据库: {db_path}")
+    
+    @classmethod
+    def get_instance(cls, db_path: str = None) -> 'ArchiveIDManager':
+        """
+        获取全局单例实例
+        
+        Args:
+            db_path: 数据库路径，仅在首次调用时有效
+            
+        Returns:
+            ArchiveIDManager: 全局单例实例
+        """
+        global _global_manager, _global_manager_lock
+        
+        if _global_manager is None and not _global_manager_lock:
+            _global_manager_lock = True
+            try:
+                _global_manager = cls(db_path)
+                logger.debug("创建全局 ArchiveIDManager 实例")
+            finally:
+                _global_manager_lock = False
+                
+        return _global_manager
+    
+    @classmethod 
+    def reset_instance(cls):
+        """重置全局实例（主要用于测试）"""
+        global _global_manager
+        if _global_manager:
+            try:
+                _global_manager.close()
+            except:
+                pass
+        _global_manager = None
     
     def __enter__(self):
         """上下文管理器入口"""
@@ -36,7 +75,8 @@ class ArchiveIDManager:
     
     def __exit__(self, exc_type, exc_val, exc_tb):
         """上下文管理器出口"""
-        self.close()
+        # 注意：单例模式下不要在这里关闭，让程序结束时自然关闭
+        pass
     
     def close(self):
         """关闭管理器"""

@@ -11,6 +11,18 @@ from typing import Optional
 from loguru import logger
 from nanoid import generate
 
+# 导入配置
+try:
+    from ..nameu.core.config import get_tool_path
+except ImportError:
+    # 如果无法导入配置，使用默认路径
+    def get_tool_path(tool_name: str) -> str:
+        defaults = {
+            "bandizip_exe": r"D:\1PRO\Bandizip\Bandizip\bz.exe",
+            "7z_exe": "7z",
+        }
+        return defaults.get(tool_name, tool_name)
+
 
 class ArchiveIDHandler:
     """压缩包ID处理类"""
@@ -41,8 +53,9 @@ class ArchiveIDHandler:
             # 方法1: 使用bz.exe读取（如果是ZIP文件）
             if archive_path.lower().endswith('.zip'):
                 try:
+                    bandizip_path = get_tool_path("bandizip_exe")
                     result = subprocess.run(
-                        [r"D:\1PRO\Bandizip\Bandizip\bz.exe", 'l', '-list:v', archive_path],
+                        [bandizip_path, 'l', '-list:v', archive_path],
                         capture_output=True,
                         text=True,
                         encoding='utf-8'
@@ -80,8 +93,9 @@ class ArchiveIDHandler:
                     logger.debug(f"使用bz.exe读取注释失败: {e}")
             
             # 方法2: 回退到7z（用于其他格式的压缩包）
+            sevenz_path = get_tool_path("7z_exe")
             result = subprocess.run(
-                ['7z', 'l', '-slt', archive_path],
+                [sevenz_path, 'l', '-slt', archive_path],
                 capture_output=True,
                 text=True,
                 encoding='utf-8',
@@ -124,7 +138,7 @@ class ArchiveIDHandler:
                 return False
             
             # 使用临时文件方式，强制UTF-8编码
-            bandizip_commands = [r"D:\1PRO\Bandizip\Bandizip\bz.exe"]
+            bandizip_commands = [get_tool_path("bandizip_exe")]
             
             for cmd in bandizip_commands:
                 try:
