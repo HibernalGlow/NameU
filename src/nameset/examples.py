@@ -60,7 +60,14 @@ def example_basic_usage():
                 print(f"❌ 重命名失败")
         finally:
             # 确保数据库连接被关闭
-            manager.close()
+            try:
+                manager.close()
+            except Exception as e:
+                print(f"⚠️ 关闭管理器时出现问题: {e}")
+            
+            # 确保数据库文件被释放
+            import time
+            time.sleep(0.1)  # 等待文件句柄释放
 
 
 def example_search_and_stats():

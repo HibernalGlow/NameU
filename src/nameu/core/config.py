@@ -107,30 +107,6 @@ suffix_keywords = {
     ]
 }
 
-# 工具路径配置
-tool_paths = {
-    # Bandizip 相关
-    "bandizip_exe": r"D:\1PRO\Bandizip\Bandizip\bz.exe",
-    
-    # 7z 备用工具
-    "7z_exe": "7z",  # 系统PATH中的7z
-    
-    # NADnzip路径（如果有的话）
-    "nadnzip_exe": None,  # 可以在这里配置NADnzip路径
-}
-
-def get_tool_path(tool_name: str) -> str:
-    """
-    获取工具路径
-    
-    Args:
-        tool_name: 工具名称
-        
-    Returns:
-        str: 工具路径
-    """
-    return tool_paths.get(tool_name, tool_name)
-
 def get_patterns(group: str, file_type: str = 'all'):
     patterns_dict = globals().get(group, {})
     if file_type in patterns_dict:

@@ -58,11 +58,11 @@ def process_files_in_directory(directory, artist_name, add_artist_name_enabled=T
     auto_ids_created = 0
     auto_db_records_created = 0
 
-    # 准备可复用的管理器（减少频繁初始化）
+    # 准备可复用的管理器（减少频繁打开）
     if ID_TRACKING_AVAILABLE:
         try:
-            from nameset.integration import get_manager
-            _manager = get_manager()  # 使用单例实例
+            from nameset.manager import ArchiveIDManager as _ArchiveIDManager
+            _manager = _ArchiveIDManager()
         except ImportError:
             _manager = None
     else:

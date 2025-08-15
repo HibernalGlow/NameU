@@ -30,20 +30,13 @@ def load_config():
         dict: 配置字典
     """
     config_path = Path(__file__).parent / "config.toml"
-    
-    # 尝试导入统一配置
-    try:
-        from ...nameu.core.config import get_tool_path
-        default_bz_path = get_tool_path("bandizip_exe")
-    except ImportError:
-        default_bz_path = r"D:\1PRO\Bandizip\Bandizip\bz.exe"
 
     if not config_path.exists():
         print(f"警告: 配置文件不存在: {config_path}")
         print("使用默认配置...")
         return {
             'bandizip': {
-                'executable': default_bz_path
+                'executable': r"D:\1PRO\Bandizip\Bandizip\bz.exe"
             },
             'delete_patterns': {
                 'default': ['*.json', '*.convert']
@@ -63,7 +56,7 @@ def load_config():
         print("使用默认配置...")
         return {
             'bandizip': {
-                'executable': default_bz_path
+                'executable': r"D:\1PRO\Bandizip\Bandizip\bz.exe"
             },
             'delete_patterns': {
                 'default': ['*.json', '*.convert']
