@@ -29,7 +29,7 @@ if ID_TRACKING_AVAILABLE:
 else:
     _ArchiveIDHandler = None
 
-def process_files_in_directory(directory, artist_name, add_artist_name_enabled=True, convert_sensitive_enabled=True):
+def process_files_in_directory(directory, artist_name, add_artist_name_enabled=True, convert_sensitive_enabled=True, threads: int = 1):
     """
     处理目录下的所有文件
     
@@ -43,6 +43,16 @@ def process_files_in_directory(directory, artist_name, add_artist_name_enabled=T
         int: 修改的文件数量
     """
     files = [f for f in os.listdir(directory) if os.path.isfile(os.path.join(directory, f)) and f.lower().endswith(ARCHIVE_EXTENSIONS)]
+
+    # 如果启用并行且文件数>1，走并行规划路径
+    if threads and threads > 1 and len(files) > 1:
+        return process_files_in_directory_parallel(
+            directory=directory,
+            artist_name=artist_name,
+            add_artist_name_enabled=add_artist_name_enabled,
+            convert_sensitive_enabled=convert_sensitive_enabled,
+            threads=threads,
+        )
     
     modified_files_count = 0
     
@@ -204,7 +214,147 @@ def process_files_in_directory(directory, artist_name, add_artist_name_enabled=T
 
     return modified_files_count
 
-def process_artist_folder(artist_path, artist_name, add_artist_name_enabled=True, convert_sensitive_enabled=True):
+# ======================= 并行实现 =======================
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from threading import Lock
+
+_unique_name_lock = Lock()  # 仅在极端情况需要再计算唯一名时保护
+
+def _build_plan(directory, artist_name, add_artist_name_enabled, convert_sensitive_enabled):
+    """第一阶段：串行计算最终目标文件名 & 需要重命名的列表。
+    保证唯一性，以避免并发条件竞争。"""
+    plan = []  # 每项: {original, new_name, is_archive}
+    unchanged_for_id = []  # 未改名但需要补写ID
+
+    is_excluded = any(keyword in directory for keyword in exclude_keywords)
+    has_forbidden = any(keyword in directory for keyword in forbidden_artist_keywords)
+
+    # 复用管理器仅用于补建数据库
+    if ID_TRACKING_AVAILABLE:
+        try:
+            from nameset.manager import ArchiveIDManager as _ArchiveIDManager
+            _manager = _ArchiveIDManager()
+        except ImportError:
+            _manager = None
+    else:
+        _manager = None
+
+    auto_ids_created = 0
+    auto_db_records_created = 0
+
+    for filename in os.listdir(directory):
+        full_path = os.path.join(directory, filename)
+        if not (os.path.isfile(full_path) and filename.lower().endswith(ARCHIVE_EXTENSIONS)):
+            continue
+        decoded = detect_and_decode_filename(filename)
+        new_filename = get_unique_filename(directory, decoded, artist_name, is_excluded)
+        if convert_sensitive_enabled and check_sensitive_word(new_filename):
+            sensitive_words = get_sensitive_words_in_filename(new_filename)
+            logger.info(f"文件名含敏感词转换拼音: {decoded} -> {sensitive_words}")
+            new_filename = convert_sensitive_words_to_pinyin(new_filename)
+        if (not is_excluded and not has_forbidden and add_artist_name_enabled and artist_name not in exclude_keywords
+                and not has_artist_name(new_filename, artist_name)):
+            base, ext = os.path.splitext(new_filename)
+            new_filename = f"{base}{artist_name}{ext}"
+        final_filename = get_unique_filename_with_samename(directory, new_filename, full_path)
+        rename_needed = final_filename != decoded
+        if rename_needed:
+            plan.append({
+                'original_path': full_path,
+                'original_name': decoded,
+                'target_name': final_filename,
+                'is_archive': True  # 过滤时已限定
+            })
+        else:
+            # 不改名但要补ID
+            if ID_TRACKING_AVAILABLE and _ArchiveIDHandler:
+                try:
+                    comment = _ArchiveIDHandler.get_archive_comment(full_path)
+                    existing_id = _ArchiveIDHandler.extract_id_from_comment(comment)
+                    if not existing_id:
+                        created_id = _ArchiveIDHandler.get_or_create_archive_id(
+                            full_path,
+                            metadata={'artist_name': artist_name if artist_name not in exclude_keywords else None,
+                                      'auto_add': True,
+                                      'reason': 'ensure_id_without_rename'}
+                        )
+                        if created_id:
+                            auto_ids_created += 1
+                            existing_id = created_id
+                    if existing_id and _manager:
+                        info = _manager.get_archive_info(existing_id)
+                        if not info:
+                            if _manager.db.create_archive_record(
+                                existing_id, full_path, os.path.basename(full_path),
+                                artist_name if artist_name not in exclude_keywords else None
+                            ):
+                                auto_db_records_created += 1
+                except Exception as e:
+                    logger.error(f"补写ID失败 {full_path}: {e}")
+            unchanged_for_id.append(full_path)
+
+    if (auto_ids_created + auto_db_records_created) > 0:
+        logger.info(
+            f"[并行准备] 未改名补写 -> 新建ID: {auto_ids_created} 个, 补建记录: {auto_db_records_created} 个 (目录: {directory})")
+
+    if ID_TRACKING_AVAILABLE and '_manager' in locals() and _manager:
+        try:
+            _manager.close()
+        except Exception:
+            pass
+
+    return plan
+
+def _worker_rename(entry, directory, artist_name):
+    original_path = entry['original_path']
+    target_name = entry['target_name']
+    target_path = os.path.join(directory, target_name)
+    try:
+        # 再次确认文件仍存在
+        if not os.path.exists(original_path):
+            return False, 'missing'
+        original_stat = os.stat(original_path)
+        # 使用ID跟踪 (始终因是压缩包)
+        if ID_TRACKING_AVAILABLE:
+            success = process_file_with_id_tracking(
+                original_path,
+                target_name,
+                artist_name if artist_name not in exclude_keywords else None
+            )
+            if success:
+                return True, None
+            else:
+                # 回退传统方式
+                os.rename(original_path, target_path)
+                os.utime(target_path, (original_stat.st_atime, original_stat.st_mtime))
+                return True, 'fallback'
+        else:
+            os.rename(original_path, target_path)
+            os.utime(target_path, (original_stat.st_atime, original_stat.st_mtime))
+            return True, None
+    except Exception as e:
+        return False, str(e)
+
+def process_files_in_directory_parallel(directory, artist_name, add_artist_name_enabled=True, convert_sensitive_enabled=True, threads: int = 16):
+    """并行处理目录下所有压缩包文件 (两阶段: 规划 + 并行执行)"""
+    plan = _build_plan(directory, artist_name, add_artist_name_enabled, convert_sensitive_enabled)
+    if not plan:
+        return 0
+    total = len(plan)
+    modified = 0
+    from tqdm import tqdm as _tq
+    with ThreadPoolExecutor(max_workers=threads) as executor:
+        futures = [executor.submit(_worker_rename, entry, directory, artist_name) for entry in plan]
+        with _tq(total=total, desc=f"并行重命名 x{threads}", unit="file", ncols=0, leave=True) as bar:
+            for fut in as_completed(futures):
+                ok, info = fut.result()
+                if ok:
+                    modified += 1
+                bar.update(1)
+    logger.info(f"并行完成: {modified}/{total} (目录: {directory})")
+    return modified
+
+def process_artist_folder(artist_path, artist_name, add_artist_name_enabled=True, convert_sensitive_enabled=True, threads: int = 1):
     """递归处理画师文件夹及其所有子文件夹
     
     Args:
@@ -262,14 +412,14 @@ def process_artist_folder(artist_path, artist_name, add_artist_name_enabled=True
                             logger.error(f"重命名文件夹出错 {old_path}: {str(e)}")
                 
             # 处理当前目录下的所有压缩文件
-            modified_files_count = process_files_in_directory(root, artist_name, add_artist_name_enabled, convert_sensitive_enabled)
+            modified_files_count = process_files_in_directory(root, artist_name, add_artist_name_enabled, convert_sensitive_enabled, threads=threads)
             total_modified_files_count += modified_files_count
     except Exception as e:
         logger.error(f"处理文件夹出错: {e}")
 
     return total_modified_files_count
 
-def process_folders(base_path, add_artist_name_enabled=True, convert_sensitive_enabled=True):
+def process_folders(base_path, add_artist_name_enabled=True, convert_sensitive_enabled=True, threads: int = 1):
     """
     处理基础路径下的所有画师文件夹。
     不使用多线程，逐个处理每个画师的文件。
@@ -297,7 +447,7 @@ def process_folders(base_path, add_artist_name_enabled=True, convert_sensitive_e
             artist_name = get_artist_name(base_path, artist_path)
             
             # 处理画师文件夹中的文件，并获取修改文件数量
-            modified_files_count = process_artist_folder(artist_path, artist_name, add_artist_name_enabled, convert_sensitive_enabled)
+            modified_files_count = process_artist_folder(artist_path, artist_name, add_artist_name_enabled, convert_sensitive_enabled, threads=threads)
             total_processed += 1
             total_modified += modified_files_count
             

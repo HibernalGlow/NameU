@@ -45,6 +45,7 @@ if __name__ == "__main__":
     parser.add_argument('-c', '--clipboard', action='store_true', help='从剪贴板读取路径')
     parser.add_argument('-m', '--mode', choices=['multi', 'single'], help='处理模式：multi(多人模式)或single(单人模式)')
     parser.add_argument('--path', help='要处理的路径')
+    parser.add_argument('-t', '--threads', type=int, default=16, help='并行线程数 (默认1 串行)')
     parser.add_argument('--no-artist', action='store_true', help='无画师模式 - 不添加画师名后缀')
     parser.add_argument('--keep-timestamp', action='store_true', help='保持文件的修改时间')
     parser.add_argument('--convert-sensitive', action='store_true', default=True, help='将敏感词转换为拼音')
@@ -85,33 +86,24 @@ if __name__ == "__main__":
         base_path = path
         if args.keep_timestamp:
             older_timestamps = record_folder_timestamps(base_path)
-        process_folders(base_path, add_artist_name_enabled, convert_sensitive_enabled)
+        process_folders(base_path, add_artist_name_enabled, convert_sensitive_enabled, threads=args.threads)
         if args.keep_timestamp:
             restore_folder_timestamps(older_timestamps)
     else:  # single mode
         if not os.path.isdir(path):
             print(f"{Fore.RED}无效的路径: {path}{Style.RESET_ALL}")
             sys.exit(1)
-            
-        # 在单人模式下，path是画师文件夹的路径
+
         artist_path = path
-        base_path = os.path.dirname(artist_path)  # 获取父目录作为base_path
+        base_path = os.path.dirname(artist_path)
         artist_name = get_artist_name(base_path, artist_path)
-        
         print(f"{Fore.CYAN}正在处理画师文件夹: {os.path.basename(artist_path)}{Style.RESET_ALL}")
-        
         if args.keep_timestamp:
             older_timestamps = record_folder_timestamps(artist_path)
-            
-        modified_files_count = process_artist_folder(artist_path, artist_name, add_artist_name_enabled, convert_sensitive_enabled)
-        
+        modified_files_count = process_artist_folder(artist_path, artist_name, add_artist_name_enabled, convert_sensitive_enabled, threads=args.threads)
         if args.keep_timestamp:
             restore_folder_timestamps(older_timestamps)
-        
-        # 统计该文件夹中的压缩文件总数
-        total_files = sum(len([f for f in files if f.lower().endswith(ARCHIVE_EXTENSIONS)])
-                         for _, _, files in os.walk(artist_path))
-        
+        total_files = sum(len([f for f in files if f.lower().endswith(ARCHIVE_EXTENSIONS)]) for _, _, files in os.walk(artist_path))
         print(f"\n{Fore.GREEN}处理完成:{Style.RESET_ALL}")
         print(f"- 扫描了 {total_files} 个压缩文件")
         if modified_files_count > 0:
