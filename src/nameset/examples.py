@@ -23,10 +23,9 @@ def example_basic_usage():
         
         print(f"✅ 创建测试压缩包: {os.path.basename(archive_path)}")
         
-        # 2. 初始化ID管理器（不使用全局单例，避免数据库连接问题）
+        # 2. 初始化ID管理器
         db_path = os.path.join(temp_dir, "archives.db")
-        manager = ArchiveIDManager(db_path)
-        try:
+        with ArchiveIDManager(db_path) as manager:
             print(f"✅ 初始化ID管理器: {db_path}")
             
             # 3. 处理重命名（模拟nameu的工作流程）
@@ -58,16 +57,6 @@ def example_basic_usage():
                         print(f"   - {record['timestamp']}: {record['old_name']} -> {record['new_name']}")
             else:
                 print(f"❌ 重命名失败")
-        finally:
-            # 确保数据库连接被关闭
-            try:
-                manager.close()
-            except Exception as e:
-                print(f"⚠️ 关闭管理器时出现问题: {e}")
-            
-            # 确保数据库文件被释放
-            import time
-            time.sleep(0.1)  # 等待文件句柄释放
 
 
 def example_search_and_stats():
