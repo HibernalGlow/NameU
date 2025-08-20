@@ -50,6 +50,7 @@ if __name__ == "__main__":
     parser.add_argument('--keep-timestamp', action='store_true', help='保持文件的修改时间')
     parser.add_argument('--convert-sensitive', action='store_true', default=True, help='将敏感词转换为拼音')
     parser.add_argument('--no-convert-sensitive', dest='convert_sensitive', action='store_false', help='不转换敏感词',default=False)
+    parser.add_argument('--rename-only', '--no-id', action='store_true', help='仅执行重命名，不生成/写入ID，不写入压缩包注释，不进行数据库记录 (与ID跟踪相关的所有操作禁用)')
     args = parser.parse_args()
 
     if len(sys.argv) == 1:  # 如果没有命令行参数，启动TUI界面
@@ -82,11 +83,14 @@ if __name__ == "__main__":
     print(f"- 敏感词转拼音: {'启用' if convert_sensitive_enabled else '禁用'}")
     
     # 根据模式确定基础路径和处理方式
+    # 是否启用ID跟踪（生成注释/数据库记录等）
+    track_ids = not args.rename_only
+
     if args.mode == 'multi':
         base_path = path
         if args.keep_timestamp:
             older_timestamps = record_folder_timestamps(base_path)
-        process_folders(base_path, add_artist_name_enabled, convert_sensitive_enabled, threads=args.threads)
+        process_folders(base_path, add_artist_name_enabled, convert_sensitive_enabled, threads=args.threads, track_ids=track_ids)
         if args.keep_timestamp:
             restore_folder_timestamps(older_timestamps)
     else:  # single mode
@@ -100,7 +104,14 @@ if __name__ == "__main__":
         print(f"{Fore.CYAN}正在处理画师文件夹: {os.path.basename(artist_path)}{Style.RESET_ALL}")
         if args.keep_timestamp:
             older_timestamps = record_folder_timestamps(artist_path)
-        modified_files_count = process_artist_folder(artist_path, artist_name, add_artist_name_enabled, convert_sensitive_enabled, threads=args.threads)
+        modified_files_count = process_artist_folder(
+            artist_path,
+            artist_name,
+            add_artist_name_enabled,
+            convert_sensitive_enabled,
+            threads=args.threads,
+            track_ids=track_ids,
+        )
         if args.keep_timestamp:
             restore_folder_timestamps(older_timestamps)
         total_files = sum(len([f for f in files if f.lower().endswith(ARCHIVE_EXTENSIONS)]) for _, _, files in os.walk(artist_path))

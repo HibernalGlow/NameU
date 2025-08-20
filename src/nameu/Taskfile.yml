@@ -15,7 +15,10 @@ tasks:
     desc: 无画师模式 - 不添加画师名后缀的重命名模式
     cmds:
       - python -m nameu --no-artist --clipboard --keep-timestamp
-
+  rename_only:
+    desc: 无画师模式 - 不添加画师名后缀的重命名模式
+    cmds:
+      - python -m nameu --no-artist --clipboard --keep-timestamp --rename-only
   no_sensitive_convert:
     desc: 无敏感词转换 - 不将敏感词转换为拼音的模式
     cmds:
