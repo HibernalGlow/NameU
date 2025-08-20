@@ -6,6 +6,20 @@ from pathlib import Path
 from PIL import Image
 import pillow_avif
 import pillow_jxl
+
+# Try to use rich for colored output; fallback to built-in print
+try:
+    from rich.console import Console
+    console = Console()
+    def cprint(msg, style=None, end="\n"):
+        if style:
+            console.print(msg, style=style, end=end)
+        else:
+            console.print(msg, end=end)
+except Exception:
+    def cprint(msg, style=None, end="\n"):
+        # style ignored in fallback
+        print(msg, end=end)
 def get_largest_zip(folder_path):
     """
     找到文件夹中最大的 .zip 文件。
@@ -45,7 +59,7 @@ def get_largest_zip(folder_path):
     
     # 如果没有找到不包含排除关键词的文件，则使用包含关键词的文件
     if largest_zip is None and largest_zip_excluded is not None:
-        print(f"警告: 只找到包含排除关键词的压缩包: {os.path.basename(largest_zip_excluded)}")
+        cprint(f"警告: 只找到包含排除关键词的压缩包: {os.path.basename(largest_zip_excluded)}", style="yellow")
         return largest_zip_excluded
     
     return largest_zip
@@ -72,16 +86,16 @@ def convert_to_jxl(image_path):
             else:
                 # 对于不透明图片，转换为RGB
                 img = img.convert('RGB')
-            
+
             # 保存为JXL格式，使用较高的质量设置
             img.save(output_path, format='JXL', quality=45, effort=7)
-        
+
         # 转换成功后删除原图
         os.remove(image_path)
-        print(f"已转换为JXL: {os.path.basename(output_path)}")
+        cprint(f"已转换为JXL: {os.path.basename(output_path)}", style="green")
         return output_path
     except Exception as e:
-        print(f"转换失败: {image_path}，错误: {str(e)}")
+        cprint(f"转换失败: {image_path}，错误: {str(e)}", style="bold red")
         return image_path
 
 def convert_to_avif(image_path):
@@ -106,16 +120,16 @@ def convert_to_avif(image_path):
             else:
                 # 对于不透明图片，转换为RGB
                 img = img.convert('RGB')
-            
+
             # 保存为AVIF格式，使用较高的质量设置
             img.save(output_path, format='AVIF', quality=85)
-        
+
         # 转换成功后删除原图
         os.remove(image_path)
-        print(f"已转换为AVIF: {os.path.basename(output_path)}")
+        cprint(f"已转换为AVIF: {os.path.basename(output_path)}", style="green")
         return output_path
     except Exception as e:
-        print(f"转换失败: {image_path}，错误: {str(e)}")
+        cprint(f"转换失败: {image_path}，错误: {str(e)}", style="bold red")
         return image_path
 
 def extract_first_image_from_zip(zip_path, destination_folder, convert_format='jxl', no_convert=False):
@@ -199,7 +213,7 @@ def extract_first_image_from_zip(zip_path, destination_folder, convert_format='j
 
                 extracted_path = target_path
         except Exception:
-            print(f"无法处理压缩包: {zip_path}")
+            cprint(f"无法处理压缩包: {zip_path}", style="bold red")
             return
 
     # 到这里 extracted_path 已存在且指向提取出的文件
@@ -218,18 +232,19 @@ def extract_first_image_from_zip(zip_path, destination_folder, convert_format='j
             if os.path.exists(final_path):
                 os.remove(final_path)
             shutil.move(extracted_path, final_path)
+            cprint(f"已写入封面: {final_path}", style="green")
         except Exception as e:
-            print(f"移动提取文件失败: {e}")
+            cprint(f"移动提取文件失败: {e}", style="bold red")
             return
 
         # 检查提取的图片是否需要转换
         ext = Path(final_path).suffix.lower()
         if not no_convert and ext not in ['.jxl', '.avif']:
             if convert_format == 'jxl':
-                print(f"正在将图片转换为JXL: {final_path}")
+                cprint(f"正在将图片转换为JXL: {final_path}", style="cyan")
                 final_path = convert_to_jxl(final_path)
             elif convert_format == 'avif':
-                print(f"正在将图片转换为AVIF: {final_path}")
+                cprint(f"正在将图片转换为AVIF: {final_path}", style="cyan")
                 final_path = convert_to_avif(final_path)
 
 def folder_contains_image(folder_path):
