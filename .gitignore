@@ -13,3 +13,4 @@ wheels/
 /src/timeu/timestamp_backups
 /archives.db
 archives.db
+*..txt
