@@ -373,6 +373,26 @@ def get_folders_from_user():
     
     return folders
 
+def get_format_from_user(default: str = 'avif') -> str:
+    """
+    交互式选择图片转换格式，默认 avif。
+
+    返回:
+    str: 'jxl' 或 'avif'
+    """
+    prompt = f"选择转换格式 (jxl/avif) [默认: {default}]: "
+    while True:
+        try:
+            choice = input(prompt).strip().lower()
+            if choice == '':
+                return default
+            if choice in ('jxl', 'avif'):
+                return choice
+            print("无效输入，请输入 'jxl' 或 'avif'，或直接回车使用默认值。")
+        except (KeyboardInterrupt, EOFError):
+            print("\n使用默认格式。")
+            return default
+
 def main():
     """
     主函数，提供命令行界面，支持以下功能：
@@ -387,7 +407,7 @@ def main():
     parser.add_argument('folders', nargs='*', help='要处理的文件夹路径，可以提供多个')
     parser.add_argument('-r', '--recursive', action='store_true', help='是否递归处理子文件夹')
     parser.add_argument('--no-convert', action='store_true', help='不转换图片格式')
-    parser.add_argument('--format', choices=['jxl', 'avif'], default='jxl', help='转换图片的目标格式 (默认: jxl)')
+    parser.add_argument('--format', choices=['jxl', 'avif'], default=None, help='转换图片的目标格式；未提供时将交互选择 (默认: avif)')
 
     args = parser.parse_args()
     
@@ -396,6 +416,10 @@ def main():
         folders = get_folders_from_user()
     else:
         folders = args.folders
+
+    # 若未显式指定格式，则进行交互式选择（除非指定了不转换）
+    if not args.no_convert and args.format is None:
+        args.format = get_format_from_user(default='avif')
     
     # 检查提供的文件夹是否存在
     valid_folders = []
@@ -408,7 +432,7 @@ def main():
     if not valid_folders:
         print("没有有效的文件夹路径，程序退出")
         return
-      # 处理每个有效的文件夹
+    # 处理每个有效的文件夹
     for folder in valid_folders:
         print(f"\n开始处理文件夹: {folder}")
         process_folder(folder, args.format, args.no_convert)
