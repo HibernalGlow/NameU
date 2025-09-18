@@ -69,7 +69,7 @@ if __name__ == "__main__":
             print(f"{Fore.RED}从剪贴板读取路径失败: {e}{Style.RESET_ALL}")
             exit(1)
     else:
-        path = args.path or r"E:\1EHV"
+        path = args.path or r"E:\1Hub\EH\1EHV"
         print(f"{Fore.GREEN}使用路径: {path}{Style.RESET_ALL}")
 
     print(f"\n{Fore.CYAN}当前模式: {'多人模式' if args.mode == 'multi' else '单人模式'}{Style.RESET_ALL}")

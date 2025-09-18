@@ -42,7 +42,7 @@ class ArchiveIDHandler:
             if archive_path.lower().endswith('.zip'):
                 try:
                     result = subprocess.run(
-                        [r"D:\1PRO\Bandizip\Bandizip\bz.exe", 'l', '-list:v', archive_path],
+                        [r"bz.exe", 'l', '-list:v', archive_path],
                         capture_output=True,
                         text=True,
                         encoding='utf-8'
@@ -124,7 +124,7 @@ class ArchiveIDHandler:
                 return False
             
             # 使用临时文件方式，强制UTF-8编码
-            bandizip_commands = [r"D:\1PRO\Bandizip\Bandizip\bz.exe"]
+            bandizip_commands = [r"bz.exe"]
             
             for cmd in bandizip_commands:
                 try:

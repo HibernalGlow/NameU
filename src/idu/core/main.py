@@ -42,7 +42,7 @@ class CommandManager:
                 logger.error(f"[#process]从剪贴板读取路径失败: {e}")
                 sys.exit(1)
         else:
-            target_directory = args.path or r"E:\1EHV"
+            target_directory = args.path or r"E:\1Hub\EH\1EHV"
             logger.info(f"[#current_stats]使用路径: {target_directory}")
         return target_directory
 
