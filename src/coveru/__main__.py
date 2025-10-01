@@ -6,6 +6,7 @@ from pathlib import Path
 from PIL import Image
 import pillow_avif
 import pillow_jxl
+import toml
 
 # Try to use rich for colored output; fallback to built-in print
 try:
@@ -31,7 +32,8 @@ def get_largest_zip(folder_path):
     返回:
     str: 最大的 .zip 文件的路径，如果未找到则返回 None。
     """
-    exclude_keywords = ['画集', '合刊', '商业', '单行']
+    global EXCLUDE_KEYWORDS
+    exclude_keywords = EXCLUDE_KEYWORDS
     largest_size = 0
     largest_zip = None
     largest_size_excluded = 0
@@ -88,7 +90,7 @@ def convert_to_jxl(image_path):
                 img = img.convert('RGB')
 
             # 保存为JXL格式，使用较高的质量设置
-            img.save(output_path, format='JXL', quality=45, effort=7)
+            img.save(output_path, format='JXL', quality=JXL_QUALITY, effort=JXL_EFFORT)
 
         # 转换成功后删除原图
         os.remove(image_path)
@@ -122,7 +124,7 @@ def convert_to_avif(image_path):
                 img = img.convert('RGB')
 
             # 保存为AVIF格式，使用较高的质量设置
-            img.save(output_path, format='AVIF', quality=85)
+            img.save(output_path, format='AVIF', quality=AVIF_QUALITY)
 
         # 转换成功后删除原图
         os.remove(image_path)
@@ -143,8 +145,9 @@ def extract_first_image_from_zip(zip_path, destination_folder, convert_format='j
     convert_format (str): 转换的目标格式，'jxl' 或 'avif'。
     no_convert (bool): 是否跳过格式转换。
     """
+    global IMAGE_EXTS
     # 首先尝试使用 7z（性能/兼容路径更好），失败时回退到 Python 的 zipfile
-    image_exts = ('.png', '.jpg', '.jpeg', '.webp', '.avif', '.jxl')
+    image_exts = IMAGE_EXTS
     first_image = None
     extracted_path = None
 
@@ -252,8 +255,9 @@ def folder_contains_image(folder_path):
     判断文件夹（仅当前层级）是否包含图片文件或已生成的封面文件。
     返回 True/False。
     """
+    global IMAGE_EXTS
     from pathlib import Path as _P
-    image_exts = {'.png', '.jpg', '.jpeg', '.webp', '.avif', '.jxl'}
+    image_exts = set(IMAGE_EXTS)
     try:
         with os.scandir(folder_path) as it:
             for entry in it:
@@ -373,7 +377,7 @@ def get_folders_from_user():
     
     return folders
 
-def get_format_from_user(default: str = 'avif') -> str:
+def get_format_from_user(default: str) -> str:
     """
     交互式选择图片转换格式，默认 avif。
 
@@ -402,6 +406,32 @@ def main():
     """    
     import argparse
     
+    # 加载配置
+    config_path = Path(__file__).parent / "config.toml"
+    try:
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config = toml.load(f)
+    except FileNotFoundError:
+        print(f"配置文件 {config_path} 未找到，使用默认配置")
+        config = {
+            'general': {
+                'default_format': 'jxl',
+                'exclude_keywords': ['画集', '合刊', '商业', '单行'],
+                'image_extensions': ['.png', '.jpg', '.jpeg', '.webp', '.avif', '.jxl']
+            },
+            'jxl': {'quality': 45, 'effort': 7},
+            'avif': {'quality': 85}
+        }
+    
+    # 设置全局配置变量
+    global EXCLUDE_KEYWORDS, IMAGE_EXTS, DEFAULT_FORMAT, JXL_QUALITY, JXL_EFFORT, AVIF_QUALITY
+    EXCLUDE_KEYWORDS = config['general']['exclude_keywords']
+    IMAGE_EXTS = tuple(config['general']['image_extensions'])
+    DEFAULT_FORMAT = config['general']['default_format']
+    JXL_QUALITY = config['jxl']['quality']
+    JXL_EFFORT = config['jxl']['effort']
+    AVIF_QUALITY = config['avif']['quality']
+    
     # 创建命令行参数解析器
     parser = argparse.ArgumentParser(description='处理文件夹中的ZIP文件并提取封面图片')
     parser.add_argument('folders', nargs='*', help='要处理的文件夹路径，可以提供多个')
@@ -419,7 +449,7 @@ def main():
 
     # 若未显式指定格式，则进行交互式选择（除非指定了不转换）
     if not args.no_convert and args.format is None:
-        args.format = get_format_from_user(default='avif')
+        args.format = get_format_from_user(default=DEFAULT_FORMAT)
     
     # 检查提供的文件夹是否存在
     valid_folders = []

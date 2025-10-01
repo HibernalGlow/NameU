@@ -1,0 +1,11 @@
+[general]
+default_format = "jxl"
+exclude_keywords = ["画集", "合刊", "商业", "单行"]
+image_extensions = [".png", ".jpg", ".jpeg", ".webp", ".avif", ".jxl"]
+
+[jxl]
+quality = 45
+effort = 7
+
+[avif]
+quality = 85
