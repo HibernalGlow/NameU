@@ -101,38 +101,49 @@ class TimestampManager:
         
         backup_file = os.path.join(self.backup_dir, f"timestamps_{version_name}.json")
         timestamps = {}
-        total_items = 0
-        for root, dirs, files in os.walk(directory):
-            total_items += len(dirs) + len(files)
         
         # 确保读取最新的注释信息
         ArchiveIDHandler.clear_comment_cache()
 
-        with tqdm(total=total_items, desc="保存时间戳") as pbar:
+        # 单次遍历处理所有文件和目录
+        processed_count = 0
+        with tqdm(desc="保存时间戳") as pbar:
             for root, dirs, files in os.walk(directory):
-                for dir in dirs:
-                    dir_path = os.path.join(root, dir)
-                    stats = os.stat(dir_path)
-                    timestamps[dir_path] = {
-                        'access_time': stats.st_atime,
-                        'mod_time': stats.st_mtime,
-                    }
-                    pbar.update(1)
+                # 处理目录
+                for dir_name in dirs:
+                    dir_path = os.path.join(root, dir_name)
+                    try:
+                        stats = os.stat(dir_path)
+                        timestamps[dir_path] = {
+                            'access_time': stats.st_atime,
+                            'mod_time': stats.st_mtime,
+                        }
+                    except OSError as e:
+                        print(f"警告: 无法访问目录 {dir_path}: {e}")
+                    processed_count += 1
                 
-                for file in files:
-                    file_path = os.path.join(root, file)
-                    stats = os.stat(file_path)
-                    record = {
-                        'access_time': stats.st_atime,
-                        'mod_time': stats.st_mtime,
-                    }
+                # 处理文件
+                for file_name in files:
+                    file_path = os.path.join(root, file_name)
+                    try:
+                        stats = os.stat(file_path)
+                        record = {
+                            'access_time': stats.st_atime,
+                            'mod_time': stats.st_mtime,
+                        }
 
-                    archive_id = _extract_archive_id(file_path)
-                    if archive_id:
-                        record['archive_id'] = archive_id
+                        archive_id = _extract_archive_id(file_path)
+                        if archive_id:
+                            record['archive_id'] = archive_id
 
-                    timestamps[file_path] = record
-                    pbar.update(1)
+                        timestamps[file_path] = record
+                    except OSError as e:
+                        print(f"警告: 无法访问文件 {file_path}: {e}")
+                    processed_count += 1
+                
+                # 批量更新进度条
+                pbar.update(len(dirs) + len(files))
+                pbar.set_description(f"保存时间戳 ({processed_count} 个项目)")
         
         with open(backup_file, 'wb') as f:
             f.write(orjson.dumps(timestamps))
