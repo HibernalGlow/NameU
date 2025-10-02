@@ -4,12 +4,13 @@
 """
 
 import os
-from typing import List, Dict, Any, Optional, Tuple
+from typing import Callable, List, Dict, Any, Optional, Tuple
 from datetime import datetime
 from loguru import logger
 
 from ..database import ArchiveDatabase
 from ..manager import ArchiveIDManager
+from ..id_handler import ArchiveIDHandler
 
 
 class ArchiveRestoreManager:
@@ -25,12 +26,18 @@ class ArchiveRestoreManager:
         self.manager = ArchiveIDManager(db_path)
         self.db = self.manager.db
     
-    def scan_folder_archives(self, folder_path: str) -> List[Dict[str, Any]]:
+    def scan_folder_archives(
+        self,
+        folder_path: str,
+        recursive: bool = True,
+        on_progress: Optional[Callable[[str], None]] = None,
+    ) -> List[Dict[str, Any]]:
         """
         扫描文件夹下的所有压缩包并获取其历史信息
         
         Args:
             folder_path: 文件夹路径
+            recursive: 是否递归扫描子目录
             
         Returns:
             List[Dict[str, Any]]: 压缩包信息列表
@@ -41,24 +48,36 @@ class ArchiveRestoreManager:
         archive_extensions = ('.zip', '.rar', '.7z')
         
         try:
-            for filename in os.listdir(folder_path):
-                if filename.lower().endswith(archive_extensions):
-                    file_path = os.path.join(folder_path, filename)
-                    
-                    # 尝试获取压缩包ID
-                    archive_info = self._get_archive_info_by_name(filename, file_path)
-                    if archive_info:
-                        archives.append(archive_info)
-                    else:
-                        # 没有找到ID的文件
-                        archives.append({
-                            'current_file': filename,
-                            'file_path': file_path,
-                            'archive_id': None,
-                            'has_history': False,
-                            'history_count': 0,
-                            'message': '未找到历史记录'
-                        })
+            if recursive:
+                walker = os.walk(folder_path)
+            else:
+                filenames = [f for f in os.listdir(folder_path) if os.path.isfile(os.path.join(folder_path, f))]
+                walker = [(folder_path, [], filenames)]
+
+            for root, _, filenames in walker:
+                for filename in filenames:
+                    if filename.lower().endswith(archive_extensions):
+                        file_path = os.path.join(root, filename)
+                        relative_path = os.path.relpath(file_path, folder_path)
+
+                        # 尝试获取压缩包ID
+                        archive_info = self._get_archive_info_by_name(filename, file_path)
+                        if archive_info:
+                            archive_info['relative_path'] = relative_path
+                            archives.append(archive_info)
+                        else:
+                            archives.append({
+                                'current_file': filename,
+                                'file_path': file_path,
+                                'relative_path': relative_path,
+                                'archive_id': None,
+                                'has_history': False,
+                                'history_count': 0,
+                                'message': '未找到历史记录'
+                            })
+
+                        if on_progress:
+                            on_progress(file_path)
         
         except Exception as e:
             logger.error(f"扫描文件夹失败 {folder_path}: {e}")
@@ -76,17 +95,24 @@ class ArchiveRestoreManager:
         Returns:
             Optional[Dict[str, Any]]: 压缩包信息
         """
-        # 方法1: 直接从路径查找
-        archive_id = self.db.get_archive_id_by_path(file_path)
-        
-        # 方法2: 通过名称模糊匹配
+        archive_id: Optional[str] = None
+
+        # 方法1: 通过压缩包注释提取ID
+        comment = ArchiveIDHandler.get_archive_comment(file_path)
+        archive_id = ArchiveIDHandler.extract_id_from_comment(comment)
+
+        # 方法2: 直接从路径查找
+        if not archive_id:
+            archive_id = self.db.get_archive_id_by_path(file_path)
+
+        # 方法3: 通过名称模糊匹配
         if not archive_id:
             name_without_ext = os.path.splitext(filename)[0]
             matches = self.db.find_archive_by_name(name_without_ext)
             if matches:
                 archive_id = matches[0]['id']
         
-        # 方法3: 通过文件哈希匹配
+        # 方法4: 通过文件哈希匹配
         if not archive_id:
             file_hash = self.db._calculate_file_hash(file_path)
             if file_hash:

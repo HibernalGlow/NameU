@@ -1,12 +1,17 @@
 import os
-import orjson
-from tqdm import tqdm
-from datetime import datetime
-from loguru import logger
-import os
 import sys
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
+from typing import Optional
+
+import orjson
+from loguru import logger
+from tqdm import tqdm
+
+from nameset.id_handler import ArchiveIDHandler
+
+SUPPORTED_ARCHIVE_EXTENSIONS = (".zip", ".rar", ".7z")
+
 
 def setup_logger(app_name="app", project_root=None, console_output=True):
     """配置 Loguru 日志系统
@@ -68,6 +73,19 @@ def setup_logger(app_name="app", project_root=None, console_output=True):
 
 logger, config_info = setup_logger(app_name="timeu", console_output=True)
 
+
+def _extract_archive_id(file_path: str) -> Optional[str]:
+    """尝试读取压缩包注释并提取归档ID。"""
+
+    if not file_path.lower().endswith(SUPPORTED_ARCHIVE_EXTENSIONS):
+        return None
+
+    comment = ArchiveIDHandler.get_archive_comment(file_path)
+    if not comment:
+        return None
+
+    return ArchiveIDHandler.extract_id_from_comment(comment)
+
 class TimestampManager:
     def __init__(self, backup_dir='timestamp_backups'):
         # 获取脚本所在目录
@@ -87,18 +105,33 @@ class TimestampManager:
         for root, dirs, files in os.walk(directory):
             total_items += len(dirs) + len(files)
         
+        # 确保读取最新的注释信息
+        ArchiveIDHandler.clear_comment_cache()
+
         with tqdm(total=total_items, desc="保存时间戳") as pbar:
             for root, dirs, files in os.walk(directory):
                 for dir in dirs:
                     dir_path = os.path.join(root, dir)
                     stats = os.stat(dir_path)
-                    timestamps[dir_path] = {'access_time': stats.st_atime, 'mod_time': stats.st_mtime}
+                    timestamps[dir_path] = {
+                        'access_time': stats.st_atime,
+                        'mod_time': stats.st_mtime,
+                    }
                     pbar.update(1)
                 
                 for file in files:
                     file_path = os.path.join(root, file)
                     stats = os.stat(file_path)
-                    timestamps[file_path] = {'access_time': stats.st_atime, 'mod_time': stats.st_mtime}
+                    record = {
+                        'access_time': stats.st_atime,
+                        'mod_time': stats.st_mtime,
+                    }
+
+                    archive_id = _extract_archive_id(file_path)
+                    if archive_id:
+                        record['archive_id'] = archive_id
+
+                    timestamps[file_path] = record
                     pbar.update(1)
         
         with open(backup_file, 'wb') as f:

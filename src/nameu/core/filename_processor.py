@@ -459,7 +459,7 @@ def get_unique_filename(directory, filename, artist_name, is_excluded=False):
     max_length = NAME_LEN - len(ext)
     if len(new_base) > max_length:
         logger.warning(f"文件名过长，将被截断: {new_base}")
-        new_base = new_base[:max_length]
+        new_base = truncate_filename_smart(new_base, max_length)
         logger.info(f"截断后的文件名: {new_base}")
     
     # 检查文件是否存在，如果存在则添加[samename_n]后缀

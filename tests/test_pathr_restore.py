@@ -9,6 +9,12 @@ from nameset.database import ArchiveDatabase
 from typer.testing import CliRunner
 
 from pathr import PathRestoreManager
+from pathr.core import (
+    LOOKUP_ARCHIVE_HISTORY,
+    LOOKUP_ARCHIVE_INFO,
+    RESTORE_LOOKUP_PIPELINE,
+    configure_lookup_pipeline,
+)
 from pathr.cli import app as pathr_app
 
 
@@ -95,6 +101,38 @@ def test_restore_file_dry_run(make_archive):
     assert outcome.status == "planned"
     assert setup["misplaced_path"].exists()
     assert outcome.target_path == str(setup["final_path"])
+
+
+def test_restore_file_detects_aligned_path(make_archive):
+    setup = make_archive("aligned.db")
+    assert setup["final_path"].exists()
+
+    with PathRestoreManager(str(setup["db_path"])) as restorer:
+        outcome = restorer.restore_file(str(setup["final_path"]), dry_run=False)
+
+    assert outcome.status == "aligned"
+    assert outcome.target_path == str(setup["final_path"])
+
+
+def test_lookup_pipeline_custom_order(make_archive, monkeypatch):
+    setup = make_archive("pipeline.db")
+    shutil.move(setup["final_path"], setup["misplaced_path"])
+
+    comment_payload = json.dumps({"id": setup["archive_id"]})
+    monkeypatch.setattr(
+        "pathr.core.ArchiveIDHandler.get_archive_comment",
+        lambda _path: comment_payload,
+    )
+
+    original_order = RESTORE_LOOKUP_PIPELINE.copy()
+    try:
+        configure_lookup_pipeline([LOOKUP_ARCHIVE_INFO])
+        with PathRestoreManager(str(setup["db_path"])) as restorer:
+            outcome = restorer.restore_file(str(setup["misplaced_path"]), dry_run=True)
+        assert outcome.status == "planned"
+        assert outcome.archive_id == setup["archive_id"]
+    finally:
+        configure_lookup_pipeline(original_order)
 
 
 def test_cli_restore_interactive(make_archive):

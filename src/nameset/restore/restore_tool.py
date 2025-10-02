@@ -17,6 +17,18 @@ sys.path.insert(0, src_path)
 from nameset.restore.restore import ArchiveRestoreManager
 from pathr.core import PathRestoreManager
 
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn
+
+
+def create_progress() -> Progress:
+    return Progress(
+        SpinnerColumn(),
+        TextColumn("{task.description}"),
+        BarColumn(),
+        TextColumn("{task.completed}", justify="right"),
+        TimeElapsedColumn(),
+    )
+
 
 def print_archive_list(archives: List[Dict[str, Any]]):
     """打印压缩包列表"""
@@ -25,7 +37,8 @@ def print_archive_list(archives: List[Dict[str, Any]]):
     
     for i, archive in enumerate(archives, 1):
         status = "✅" if archive.get('has_history') else "❌"
-        print(f"{i:2d}. {status} {archive['current_file']}")
+        display_name = archive.get('relative_path') or archive.get('current_file')
+        print(f"{i:2d}. {status} {display_name}")
         
         if archive.get('has_history'):
             print(f"      ID: {archive['archive_id']}")
@@ -68,49 +81,76 @@ def interactive_mode():
     
     # 扫描压缩包
     with ArchiveRestoreManager() as restore_manager:
-        print(f"\n🔍 正在扫描文件夹: {folder_path}")
-        archives = restore_manager.scan_folder_archives(folder_path)
-        
-        if not archives:
-            print("❌ 未找到任何压缩包文件!")
-            return
-        
-        # 过滤有历史记录的文件
-        archives_with_history = [a for a in archives if a.get('has_history')]
-        
-        if not archives_with_history:
-            print("❌ 没有找到具有历史记录的压缩包!")
+        while True:
+            print(f"\n🔍 正在扫描文件夹: {folder_path}")
+
+            with create_progress() as progress:
+                task_scan = progress.add_task("扫描压缩包", total=None)
+
+                archives = restore_manager.scan_folder_archives(
+                    folder_path,
+                    recursive=True,
+                    on_progress=lambda _: progress.advance(task_scan),
+                )
+
+            archive_count = len(archives)
+            print(f"✅ 扫描完成，共 {archive_count} 个压缩包候选")
+
+            if not archives:
+                print("❌ 未找到任何压缩包文件!")
+                return
+
+            # 过滤有历史记录的文件
+            archives_with_history = [a for a in archives if a.get('has_history')]
+            history_available = bool(archives_with_history)
+
+            if not history_available:
+                print("⚠️ 没有找到具有历史记录的压缩包，相关操作将被跳过，可直接使用路径恢复功能。")
+
             print_archive_list(archives)
-            return
-        
-        print_archive_list(archives)
-        
-        # 选择操作模式
-        print("🎯 选择操作模式:")
-        print("1. 单个文件恢复")
-        print("2. 按日期批量恢复") 
-        print("3. 预览恢复效果")
-        print("4. 路径恢复 (基于UUID)")
-        
-        choice = input("请选择 (1-4): ").strip()
-        
-        if choice == "1":
-            single_file_restore(restore_manager, archives_with_history)
-        elif choice == "2":
-            batch_restore_by_date(restore_manager, folder_path)
-        elif choice == "3":
-            preview_restore(restore_manager, folder_path)
-        elif choice == "4":
-            path_restore_folder(folder_path)
-        else:
-            print("❌ 无效选择!")
+
+            # 选择操作模式
+            print("🎯 选择操作模式:")
+            print("1. 单个文件恢复")
+            print("2. 按日期批量恢复") 
+            print("3. 预览恢复效果")
+            print("4. 路径恢复 (基于UUID)")
+            print("Q. 返回/退出")
+
+            choice = input("请选择 (1-4 / Q): ").strip().lower()
+
+            if choice in {"q", "quit", "exit"}:
+                print("👋 已返回主界面")
+                return
+
+            if choice in {"1", "2", "3"} and not history_available:
+                print("⚠️ 当前文件夹没有历史记录，无法执行该操作，请使用选项 4。")
+                continue
+
+            if choice == "1":
+                single_file_restore(restore_manager, archives_with_history)
+            elif choice == "2":
+                batch_restore_by_date(restore_manager, folder_path)
+            elif choice == "3":
+                preview_restore(restore_manager, folder_path)
+            elif choice == "4":
+                path_restore_folder(folder_path)
+            else:
+                print("❌ 无效选择!")
+                continue
+
+            back = input("\n继续执行其他操作吗? (Y/n): ").strip().lower()
+            if back in {"n", "no"}:
+                print("👋 已返回主界面")
+                return
 
 
 def single_file_restore(restore_manager: ArchiveRestoreManager, archives: List[Dict[str, Any]]):
     """单个文件恢复"""
     print("\n📋 有历史记录的压缩包:")
     for i, archive in enumerate(archives, 1):
-        print(f"{i}. {archive['current_file']} (历史记录: {archive['history_count']} 条)")
+        display_name = archive.get('relative_path') or archive['current_file']
+        print(f"{i}. {display_name} (历史记录: {archive['history_count']} 条)")
     
     try:
         file_index = int(input(f"\n请选择要恢复的文件 (1-{len(archives)}): ")) - 1
@@ -261,8 +301,21 @@ def path_restore_folder(folder_path: str):
     print("\n🛠️ 路径恢复预览")
     print("-" * 80)
 
+    base_folder = os.path.abspath(folder_path)
+
     with PathRestoreManager() as path_manager:
-        outcomes = path_manager.restore_from_directory(folder_path, recursive=True, dry_run=True)
+        with create_progress() as progress:
+            task_preview = progress.add_task("分析压缩包", total=None)
+
+            def on_preview(_path: str, _outcome: Any) -> None:
+                progress.advance(task_preview)
+
+            outcomes = path_manager.restore_from_directory(
+                folder_path,
+                recursive=True,
+                dry_run=True,
+                on_progress=on_preview,
+            )
 
         symbols = {
             "planned": "🔄",
@@ -275,12 +328,24 @@ def path_restore_folder(folder_path: str):
             "error": "💥",
         }
 
+        print(f"✅ 预览完成，共 {len(outcomes)} 个候选条目")
+
         planned = []
         for i, outcome in enumerate(outcomes, 1):
             symbol = symbols.get(outcome.status, "•")
-            print(f"{i:2d}. {symbol} {os.path.basename(outcome.source_path)}")
+            try:
+                rel_path = os.path.relpath(outcome.source_path, base_folder)
+            except ValueError:
+                rel_path = outcome.source_path
+            print(f"{i:2d}. {symbol} {rel_path}")
             if outcome.target_path:
-                print(f"      → {outcome.target_path}")
+                target_rel = outcome.target_path
+                if isinstance(target_rel, str) and os.path.isabs(target_rel):
+                    try:
+                        target_rel = os.path.relpath(target_rel, base_folder)
+                    except ValueError:
+                        pass
+                print(f"      → {target_rel}")
             print(f"      状态: {outcome.status} - {outcome.message}")
             if outcome.archive_id:
                 print(f"      UUID: {outcome.archive_id}")
@@ -298,10 +363,27 @@ def path_restore_folder(folder_path: str):
             return
 
         print("\n🚚 正在执行路径恢复...")
-        for outcome in planned:
-            result = path_manager.restore_file(outcome.source_path, dry_run=False)
+        results = []
+        with create_progress() as progress:
+            task_restore = progress.add_task("执行路径恢复", total=len(planned))
+            for outcome in planned:
+                result = path_manager.restore_file(outcome.source_path, dry_run=False)
+                results.append(result)
+                progress.advance(task_restore)
+
+        for result in results:
             prefix = symbols.get(result.status, "•")
-            print(f"{prefix} {os.path.basename(result.source_path)} -> {result.target_path or '未知目标'}")
+            try:
+                result_rel = os.path.relpath(result.source_path, base_folder)
+            except ValueError:
+                result_rel = result.source_path
+            target_display = result.target_path or '未知目标'
+            if isinstance(target_display, str) and os.path.isabs(target_display):
+                try:
+                    target_display = os.path.relpath(target_display, base_folder)
+                except ValueError:
+                    pass
+            print(f"{prefix} {result_rel} -> {target_display}")
             print(f"   状态: {result.status} - {result.message}")
 
         print("\n🎉 路径恢复完成!")

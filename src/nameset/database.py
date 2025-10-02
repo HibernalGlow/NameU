@@ -122,11 +122,29 @@ class ArchiveDatabase:
         """
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
-            cursor.execute('''
-                SELECT id FROM archive_info WHERE file_path = ?
-            ''', (file_path,))
-            result = cursor.fetchone()
-            return result[0] if result else None
+            candidates: List[str] = []
+
+            def _append_candidate(path: str) -> None:
+                if path not in candidates:
+                    candidates.append(path)
+
+            _append_candidate(file_path)
+            normalized = os.path.normpath(file_path)
+            _append_candidate(normalized)
+            _append_candidate(normalized.replace("\\", "/"))
+            _append_candidate(normalized.replace("/", "\\"))
+
+            for candidate in candidates:
+                cursor.execute(
+                    '''
+                        SELECT id FROM archive_info WHERE file_path = ? COLLATE NOCASE
+                    ''',
+                    (candidate,),
+                )
+                result = cursor.fetchone()
+                if result:
+                    return result[0]
+            return None
     
     def get_archive_id_by_hash(self, file_hash: str) -> Optional[str]:
         """

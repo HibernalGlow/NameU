@@ -15,6 +15,9 @@ from nanoid import generate
 class ArchiveIDHandler:
     """压缩包ID处理类"""
     
+    # 缓存已读取的注释，避免重复读取
+    _comment_cache: dict[str, Optional[str]] = {}
+    
     @staticmethod
     def generate_id() -> str:
         """
@@ -37,6 +40,10 @@ class ArchiveIDHandler:
         Returns:
             Optional[str]: 压缩包注释，失败返回None
         """
+        # 检查缓存
+        if archive_path in ArchiveIDHandler._comment_cache:
+            return ArchiveIDHandler._comment_cache[archive_path]
+        
         try:
             # 方法1: 使用bz.exe读取（如果是ZIP文件）
             if archive_path.lower().endswith('.zip'):
@@ -74,10 +81,13 @@ class ArchiveIDHandler:
                                     if comment_part.startswith('"id":') or comment_part.startswith('"'):
                                         comment_part = '{' + comment_part
                                     logger.debug(f"使用bz.exe读取注释成功: {archive_path}")
+                                    ArchiveIDHandler._comment_cache[archive_path] = comment_part
                                     return comment_part
+                        ArchiveIDHandler._comment_cache[archive_path] = None
                         return None
                 except Exception as e:
                     logger.debug(f"使用bz.exe读取注释失败: {e}")
+                    ArchiveIDHandler._comment_cache[archive_path] = None
             
             # 方法2: 回退到7z（用于其他格式的压缩包）
             result = subprocess.run(
@@ -97,13 +107,23 @@ class ArchiveIDHandler:
                     comment = line[10:].strip()  # 去掉"Comment = "前缀
                     if comment:
                         logger.debug(f"使用7z读取注释成功: {archive_path}")
+                        ArchiveIDHandler._comment_cache[archive_path] = comment
                         return comment
             
+            ArchiveIDHandler._comment_cache[archive_path] = None
             return None
             
         except Exception as e:
             logger.error(f"获取压缩包注释失败 {archive_path}: {e}")
+            ArchiveIDHandler._comment_cache[archive_path] = None
             return None
+    
+    @staticmethod
+    def clear_comment_cache() -> None:
+        """
+        清除注释缓存
+        """
+        ArchiveIDHandler._comment_cache.clear()
     
     @staticmethod
     def set_archive_comment(archive_path: str, comment: str) -> bool:
