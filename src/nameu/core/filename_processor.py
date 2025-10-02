@@ -205,6 +205,98 @@ def format_folder_name(folder_name):
     
     return formatted_name.strip()
 
+def truncate_filename_smart(filename, max_length):
+    """
+    智能截断文件名，保持末尾符号完整性
+    
+    Args:
+        filename: 待截断的文件名（不含扩展名）
+        max_length: 最大长度
+        
+    Returns:
+        str: 截断后的文件名
+    """
+    if len(filename) <= max_length:
+        return filename
+    
+    # 定义需要配对的符号
+    bracket_pairs = {
+        '(': ')',
+        '[': ']',
+        '{': '}',
+        '<': '>',
+        '（': '）',
+        '【': '】',
+        '［': '］',
+        '｛': '｝',
+        '〈': '〉'
+    }
+    
+    # 反向映射
+    closing_to_opening = {v: k for k, v in bracket_pairs.items()}
+    all_brackets = set(bracket_pairs.keys()) | set(bracket_pairs.values())
+    
+    # 先截断到最大长度
+    truncated = filename[:max_length]
+    
+    # 从截断位置开始向前检查，找到最后一个完整的符号对位置
+    best_pos = max_length
+    stack = []
+    
+    # 从后向前扫描，找到合适的截断点
+    for i in range(len(truncated) - 1, -1, -1):
+        char = truncated[i]
+        
+        # 如果是右括号，入栈
+        if char in closing_to_opening:
+            stack.append(char)
+        # 如果是左括号
+        elif char in bracket_pairs:
+            # 检查是否有匹配的右括号
+            if stack and stack[-1] == bracket_pairs[char]:
+                stack.pop()
+            else:
+                # 找到不匹配的左括号，说明这里有未闭合的括号
+                # 截断点应该在这个左括号之前
+                best_pos = i
+                break
+    
+    # 如果栈不为空，说明有未闭合的右括号，需要继续向前找
+    if stack:
+        # 从best_pos继续向前找，删除所有不完整的括号内容
+        temp_result = truncated[:best_pos].rstrip()
+        
+        # 再次检查是否还有不完整的括号
+        while temp_result:
+            # 检查最后一个字符是否是左括号
+            if temp_result[-1] in bracket_pairs:
+                # 向前找到对应的开始位置
+                bracket_start = len(temp_result) - 1
+                # 删除这个不完整的括号及其内容
+                temp_result = temp_result[:bracket_start].rstrip()
+            else:
+                break
+        
+        return temp_result.strip()
+    
+    # 如果没有不完整的括号，在最后一个完整单词或符号处截断
+    result = truncated[:best_pos].rstrip()
+    
+    # 如果最后是空格，去除
+    result = result.rstrip()
+    
+    # 再次检查末尾，如果有不完整的括号内容，继续清理
+    # 例如: "xxx [yyy" -> "xxx"
+    while result:
+        last_char = result[-1]
+        if last_char in bracket_pairs:
+            # 找到左括号，但没有对应的右括号，删除它
+            result = result[:-1].rstrip()
+        else:
+            break
+    
+    return result.strip()
+
 def get_unique_filename(directory, filename, artist_name, is_excluded=False):
     """生成唯一文件名"""
     base, ext = os.path.splitext(filename)
