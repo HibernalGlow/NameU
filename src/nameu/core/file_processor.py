@@ -206,6 +206,20 @@ def process_files_in_directory(directory, artist_name, add_artist_name_enabled=T
                     log_message = f"重命名: {rel_old_path} -> {rel_new_path}"
                     logger.info(log_message)
                 except OSError as e:
+                    # 检查是否是文件已存在错误 (WinError 183)
+                    if e.winerror == 183 or "文件已存在" in str(e):
+                        # 记录冲突
+                        with _conflict_lock:
+                            _conflict_records.append({
+                                'source': original_file_path,
+                                'target': new_file_path,
+                                'error': str(e)
+                            })
+                        logger.error(f"❌ 文件重命名失败: {e}: '{original_file_path}' -> '{new_file_path}'")
+                    else:
+                        logger.error(f"重命名文件失败 {original_file_path}: {str(e)}")
+                    continue
+                except Exception as e:
                     logger.error(f"重命名文件失败 {original_file_path}: {str(e)}")
                     continue
                     
@@ -220,6 +234,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
 
 _unique_name_lock = Lock()  # 仅在极端情况需要再计算唯一名时保护
+_conflict_records = []  # 记录冲突的文件路径
+_conflict_lock = Lock()  # 保护冲突记录列表
 
 def _build_plan(directory, artist_name, add_artist_name_enabled, convert_sensitive_enabled, track_ids: bool = True):
     """第一阶段：串行计算最终目标文件名 & 需要重命名的列表。
@@ -333,11 +349,28 @@ def _worker_rename(entry, directory, artist_name, track_ids: bool = True):
             os.rename(original_path, target_path)
             os.utime(target_path, (original_stat.st_atime, original_stat.st_mtime))
             return True, None
+    except OSError as e:
+        # 检查是否是文件已存在错误 (WinError 183)
+        if e.winerror == 183 or "文件已存在" in str(e):
+            # 记录冲突
+            with _conflict_lock:
+                _conflict_records.append({
+                    'source': original_path,
+                    'target': target_path,
+                    'error': str(e)
+                })
+            logger.error(f"❌ 文件重命名失败: {e}: '{original_path}' -> '{target_path}'")
+        return False, str(e)
     except Exception as e:
         return False, str(e)
 
 def process_files_in_directory_parallel(directory, artist_name, add_artist_name_enabled=True, convert_sensitive_enabled=True, threads: int = 16, track_ids: bool = True):
     """并行处理目录下所有压缩包文件 (两阶段: 规划 + 并行执行)"""
+    global _conflict_records
+    # 每次处理新目录时清空冲突记录
+    with _conflict_lock:
+        _conflict_records = []
+    
     plan = _build_plan(directory, artist_name, add_artist_name_enabled, convert_sensitive_enabled, track_ids=track_ids)
     if not plan:
         return 0
@@ -352,7 +385,7 @@ def process_files_in_directory_parallel(directory, artist_name, add_artist_name_
                 if ok:
                     modified += 1
                 bar.update(1)
-    logger.info(f"并行完成: {modified}/{total} (目录: {directory})")
+    logger.info(f"✅ 并行完成: {modified}/{total} (目录: {directory})")
     return modified
 
 def process_artist_folder(artist_path, artist_name, add_artist_name_enabled=True, convert_sensitive_enabled=True, threads: int = 1, track_ids: bool = True):
@@ -430,6 +463,11 @@ def process_folders(base_path, add_artist_name_enabled=True, convert_sensitive_e
         add_artist_name_enabled: 是否添加画师名
         convert_sensitive_enabled: 是否将敏感词转换为拼音
     """
+    global _conflict_records
+    # 开始处理前清空所有冲突记录
+    with _conflict_lock:
+        _conflict_records = []
+    
     # 获取所有画师文件夹
     artist_folders = [
         folder for folder in os.listdir(base_path)
@@ -458,6 +496,29 @@ def process_folders(base_path, add_artist_name_enabled=True, convert_sensitive_e
             
         except Exception as e:
             logger.error(f"处理文件夹 {folder} 出错: {e}")
+    
+    # 输出冲突记录到 conflict.txt
+    if _conflict_records:
+        conflict_file_path = os.path.join(base_path, 'conflict.txt')
+        try:
+            with open(conflict_file_path, 'w', encoding='utf-8') as f:
+                f.write(f"文件重命名冲突记录\n")
+                f.write(f"生成时间: {_get_timestamp()}\n")
+                f.write(f"总冲突数: {len(_conflict_records)}\n")
+                f.write("=" * 80 + "\n\n")
+                
+                for i, conflict in enumerate(_conflict_records, 1):
+                    f.write(f"冲突 #{i}\n")
+                    f.write(f"源文件: {conflict['source']}\n")
+                    f.write(f"目标文件: {conflict['target']}\n")
+                    f.write(f"错误信息: {conflict['error']}\n")
+                    f.write("-" * 80 + "\n")
+            
+            logger.warning(f"⚠️  发现 {len(_conflict_records)} 个文件重命名冲突，详情已保存到: {conflict_file_path}")
+            print(f"\n⚠️  警告: 发现 {len(_conflict_records)} 个文件重命名冲突")
+            print(f"   冲突详情已保存到: {conflict_file_path}")
+        except Exception as e:
+            logger.error(f"保存冲突记录失败: {e}")
             
     print(f"\n处理完成:")
     print(f"- 总共处理了 {total_processed} 个文件夹")
@@ -466,6 +527,66 @@ def process_folders(base_path, add_artist_name_enabled=True, convert_sensitive_e
         print(f"- 重命名了 {total_modified} 个文件")
     else:
         print(f"- ✨ 所有文件名都符合规范，没有文件需要重命名")
+
+def _get_timestamp():
+    """获取当前时间戳字符串"""
+    from datetime import datetime
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+def export_conflict_records(output_path: str = None) -> bool:
+    """
+    导出冲突记录到文件
+    
+    Args:
+        output_path: 输出文件路径，如果为 None 则使用当前目录的 conflict.txt
+        
+    Returns:
+        bool: 是否成功导出
+    """
+    global _conflict_records
+    
+    if not _conflict_records:
+        logger.info("没有冲突记录需要导出")
+        return False
+    
+    if output_path is None:
+        output_path = os.path.join(os.getcwd(), 'conflict.txt')
+    
+    try:
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write(f"文件重命名冲突记录\n")
+            f.write(f"生成时间: {_get_timestamp()}\n")
+            f.write(f"总冲突数: {len(_conflict_records)}\n")
+            f.write("=" * 80 + "\n\n")
+            
+            for i, conflict in enumerate(_conflict_records, 1):
+                f.write(f"冲突 #{i}\n")
+                f.write(f"源文件: {conflict['source']}\n")
+                f.write(f"目标文件: {conflict['target']}\n")
+                f.write(f"错误信息: {conflict['error']}\n")
+                f.write("-" * 80 + "\n")
+        
+        logger.info(f"✅ 冲突记录已导出到: {output_path}")
+        return True
+    except Exception as e:
+        logger.error(f"导出冲突记录失败: {e}")
+        return False
+
+def get_conflict_count() -> int:
+    """
+    获取当前冲突记录数量
+    
+    Returns:
+        int: 冲突数量
+    """
+    return len(_conflict_records)
+
+def clear_conflict_records():
+    """清空冲突记录"""
+    global _conflict_records
+    with _conflict_lock:
+        _conflict_records = []
+    logger.debug("冲突记录已清空")
 
 def get_artist_name(target_directory, archive_path):
     """
