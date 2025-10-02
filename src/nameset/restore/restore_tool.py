@@ -15,6 +15,7 @@ src_path = os.path.join(project_root, 'src')
 sys.path.insert(0, src_path)
 
 from nameset.restore.restore import ArchiveRestoreManager
+from pathr.core import PathRestoreManager
 
 
 def print_archive_list(archives: List[Dict[str, Any]]):
@@ -89,8 +90,9 @@ def interactive_mode():
         print("1. 单个文件恢复")
         print("2. 按日期批量恢复") 
         print("3. 预览恢复效果")
+        print("4. 路径恢复 (基于UUID)")
         
-        choice = input("请选择 (1-3): ").strip()
+        choice = input("请选择 (1-4): ").strip()
         
         if choice == "1":
             single_file_restore(restore_manager, archives_with_history)
@@ -98,6 +100,8 @@ def interactive_mode():
             batch_restore_by_date(restore_manager, folder_path)
         elif choice == "3":
             preview_restore(restore_manager, folder_path)
+        elif choice == "4":
+            path_restore_folder(folder_path)
         else:
             print("❌ 无效选择!")
 
@@ -250,6 +254,57 @@ def preview_restore(restore_manager: ArchiveRestoreManager, folder_path: str):
         print()
     
     print(f"📊 统计: 总计 {len(preview)} 个文件，其中 {changes} 个需要恢复")
+
+
+def path_restore_folder(folder_path: str):
+    """基于UUID匹配的路径恢复"""
+    print("\n🛠️ 路径恢复预览")
+    print("-" * 80)
+
+    with PathRestoreManager() as path_manager:
+        outcomes = path_manager.restore_from_directory(folder_path, recursive=True, dry_run=True)
+
+        symbols = {
+            "planned": "🔄",
+            "aligned": "✅",
+            "moved": "✅",
+            "skipped": "⏸️",
+            "no-match": "❌",
+            "no-target": "❓",
+            "ambiguous": "⚠️",
+            "error": "💥",
+        }
+
+        planned = []
+        for i, outcome in enumerate(outcomes, 1):
+            symbol = symbols.get(outcome.status, "•")
+            print(f"{i:2d}. {symbol} {os.path.basename(outcome.source_path)}")
+            if outcome.target_path:
+                print(f"      → {outcome.target_path}")
+            print(f"      状态: {outcome.status} - {outcome.message}")
+            if outcome.archive_id:
+                print(f"      UUID: {outcome.archive_id}")
+            planned.append(outcome) if outcome.status == "planned" else None
+            print()
+
+        planned = [p for p in planned if p.status == "planned"]
+        if not planned:
+            print("✅ 没有需要移动的文件，或缺少目标路径信息。")
+            return
+
+        confirm = input("是否执行上述路径恢复? (y/N): ").strip().lower()
+        if confirm != "y":
+            print("❌ 路径恢复已取消。")
+            return
+
+        print("\n🚚 正在执行路径恢复...")
+        for outcome in planned:
+            result = path_manager.restore_file(outcome.source_path, dry_run=False)
+            prefix = symbols.get(result.status, "•")
+            print(f"{prefix} {os.path.basename(result.source_path)} -> {result.target_path or '未知目标'}")
+            print(f"   状态: {result.status} - {result.message}")
+
+        print("\n🎉 路径恢复完成!")
 
 
 if __name__ == "__main__":

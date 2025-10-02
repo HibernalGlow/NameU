@@ -463,6 +463,44 @@ class ArchiveDatabase:
                 }
                 for row in results
             ]
+
+    def find_history_by_new_name(self, new_name: str) -> List[Dict[str, Any]]:
+        """根据历史记录中的新名称精确匹配条目"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                '''
+                    SELECT id, archive_id, old_name, new_name, reason, metadata, timestamp
+                    FROM archive_history
+                    WHERE new_name = ?
+                    ORDER BY timestamp DESC
+                ''',
+                (new_name,),
+            )
+
+            results = []
+            for row in cursor.fetchall():
+                metadata_obj: Optional[Dict[str, Any]] = None
+                metadata_raw = row[5]
+                if metadata_raw:
+                    try:
+                        metadata_obj = json.loads(metadata_raw)
+                    except Exception as exc:  # pragma: no cover - 记录并继续
+                        logger.warning(f"解析历史元数据失败 (history_id={row[0]}): {exc}")
+
+                results.append(
+                    {
+                        'history_id': row[0],
+                        'archive_id': row[1],
+                        'old_name': row[2],
+                        'new_name': row[3],
+                        'reason': row[4],
+                        'metadata': metadata_obj,
+                        'timestamp': row[6],
+                    }
+                )
+
+            return results
     
     def get_archive_info(self, archive_id: str) -> Optional[Dict[str, Any]]:
         """
