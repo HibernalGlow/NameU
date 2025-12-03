@@ -58,7 +58,24 @@ DEFAULT_IMAGE_EXTENSIONS = [
 DEFAULT_EXCLUDE_KEYWORDS = ['画集', '合刊', '商业', '单行']
 DEFAULT_MAX_WORKERS = 4
 
+ORIGINAL_FORMAT_TOKEN = 'original'
+VALID_FORMAT_CHOICES = ('jxl', 'avif', 'o', 'original')
+FORMAT_ALIASES = {
+    'o': ORIGINAL_FORMAT_TOKEN,
+    'original': ORIGINAL_FORMAT_TOKEN,
+}
+SUPPORTED_CONVERT_FORMATS = {'jxl', 'avif'}
+
 DELIMITER_PATTERN = re.compile(r'[;,|]+')
+
+
+DEFAULT_FORMAT = 'jxl'
+MAX_WORKERS = DEFAULT_MAX_WORKERS
+EXCLUDE_KEYWORDS = DEFAULT_EXCLUDE_KEYWORDS
+IMAGE_EXTS = tuple(DEFAULT_IMAGE_EXTENSIONS)
+JXL_QUALITY = 45
+JXL_EFFORT = 7
+AVIF_QUALITY = 85
 
 
 def _normalize_extensions(exts):
@@ -74,6 +91,24 @@ def _normalize_extensions(exts):
         if ext not in normalized:
             normalized.append(ext)
     return tuple(normalized)
+
+
+def _normalize_format_choice(value):
+    if value is None:
+        return None
+    token = value.strip().lower()
+    if not token:
+        return None
+    token = FORMAT_ALIASES.get(token, token)
+    if token in SUPPORTED_CONVERT_FORMATS or token == ORIGINAL_FORMAT_TOKEN:
+        return token
+    return None
+
+
+def _format_display_label(value):
+    if value == ORIGINAL_FORMAT_TOKEN:
+        return 'o (保持原格式)'
+    return value
 
 
 def normalize_user_path(raw_path: str) -> str:
@@ -389,7 +424,7 @@ def extract_first_image_from_zip(zip_path, destination_folder, convert_format='j
 
         # 检查提取的图片是否需要转换
         ext = Path(final_path).suffix.lower()
-        if not no_convert and ext not in ['.jxl', '.avif']:
+        if not no_convert and convert_format != ORIGINAL_FORMAT_TOKEN and ext not in ['.jxl', '.avif']:
             if convert_format == 'jxl':
                 cprint(f"正在将图片转换为JXL: {final_path}", style="cyan")
                 final_path = convert_to_jxl(final_path)
@@ -517,15 +552,17 @@ def get_format_from_user(default: str) -> str:
     返回:
     str: 'jxl' 或 'avif'
     """
-    prompt = f"选择转换格式 (jxl/avif) [默认: {default}]: "
+    choices_label = '/'.join(['jxl', 'avif', 'o'])
+    prompt = f"选择转换格式 ({choices_label}) [默认: {_format_display_label(default)}]: "
     while True:
         try:
             choice = input(prompt).strip().lower()
             if choice == '':
                 return default
-            if choice in ('jxl', 'avif'):
-                return choice
-            print("无效输入，请输入 'jxl' 或 'avif'，或直接回车使用默认值。")
+            normalized = _normalize_format_choice(choice)
+            if normalized:
+                return normalized
+            print("无效输入，请输入 'jxl'/'avif'/'o'，或直接回车使用默认值。")
         except (KeyboardInterrupt, EOFError):
             print("\n使用默认格式。")
             return default
@@ -576,7 +613,7 @@ def main():
     parser.add_argument('folders', nargs='*', help='要处理的文件夹路径，可以提供多个')
     parser.add_argument('-r', '--recursive', action='store_true', help='是否递归处理子文件夹')
     parser.add_argument('--no-convert', action='store_true', help='不转换图片格式')
-    parser.add_argument('--format', choices=['jxl', 'avif'], default=None, help='转换图片的目标格式；未提供时将交互选择 (默认: avif)')
+    parser.add_argument('--format', choices=VALID_FORMAT_CHOICES, default=None, help='转换图片的目标格式；支持 jxl/avif/o (保持原格式)，未提供时将交互选择 (默认: 配置)')
     parser.add_argument('--max-workers', type=int, default=None, help='并发处理的最大线程数 (默认配置或 4)')
 
     args = parser.parse_args()
@@ -590,8 +627,17 @@ def main():
             folders.extend(_parse_user_path_line(raw_path))
 
     # 若未显式指定格式，则进行交互式选择（除非指定了不转换）
-    if not args.no_convert and args.format is None:
-        args.format = get_format_from_user(default=DEFAULT_FORMAT)
+    target_format = DEFAULT_FORMAT if not args.no_convert else ORIGINAL_FORMAT_TOKEN
+
+    if args.format is not None:
+        normalized_cli_format = _normalize_format_choice(args.format)
+        if not normalized_cli_format:
+            raise SystemExit(f"无效的 --format 值: {args.format}")
+        target_format = normalized_cli_format
+    elif not args.no_convert:
+        target_format = get_format_from_user(default=DEFAULT_FORMAT)
+    else:
+        target_format = ORIGINAL_FORMAT_TOKEN
     
     flattened = list(_flatten_folders(folders, recursive=args.recursive))
 
@@ -610,12 +656,12 @@ def main():
 
     if len(valid_folders) > 1 and max_workers > 1:
         cprint(f"使用并发处理: {max_workers} 个线程", style="cyan")
-        _process_folders_parallel(valid_folders, args.format, args.no_convert, max_workers)
+        _process_folders_parallel(valid_folders, target_format, args.no_convert, max_workers)
     else:
         # 处理每个有效的文件夹
         for folder in valid_folders:
             print(f"\n开始处理文件夹: {folder}")
-            process_folder(folder, args.format, args.no_convert)
+            process_folder(folder, target_format, args.no_convert)
             print(f"完成处理文件夹: {folder}")
     
     print("\n所有文件夹处理完毕！")
