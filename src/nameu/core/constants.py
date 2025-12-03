@@ -10,4 +10,4 @@ ARCHIVE_EXTENSIONS = ('.zip', '.rar', '.7z', '.cbz', '.cbr')
 exclude_keywords = ['[00待分类]', '[00去图]', '[01杂]',]
 
 # 禁止添加画师名的关键词，如果文件名中包含这些关键词，也会删除已有的画师名
-forbidden_artist_keywords = ['[圣枪嘉然]', '[00去图]', '[01杂]', '[bili]', '[bili]']#不能用""
+forbidden_artist_keywords = ['[圣枪嘉然]', '[00去图]', '[01杂]', '[bili]', '[bili]' , '[02杂]']#不能用""
