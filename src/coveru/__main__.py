@@ -1,8 +1,13 @@
 import os
+import re
+import shlex
 import shutil
 import subprocess
 import zipfile
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+
 from PIL import Image
 import pillow_avif
 import pillow_jxl
@@ -11,16 +16,158 @@ import toml
 # Try to use rich for colored output; fallback to built-in print
 try:
     from rich.console import Console
-    console = Console()
-    def cprint(msg, style=None, end="\n"):
+    from rich.panel import Panel
+    from rich.prompt import Prompt
+
+    RICH_AVAILABLE = True
+except Exception:
+    Console = None
+    Panel = None
+    Prompt = None
+    RICH_AVAILABLE = False
+
+console = Console() if RICH_AVAILABLE else None
+
+
+def cprint(msg, style=None, end="\n"):
+    if console:
         if style:
             console.print(msg, style=style, end=end)
         else:
             console.print(msg, end=end)
-except Exception:
-    def cprint(msg, style=None, end="\n"):
-        # style ignored in fallback
+    else:
         print(msg, end=end)
+
+
+DEFAULT_IMAGE_EXTENSIONS = [
+    '.png',
+    '.jpg',
+    '.jpeg',
+    '.webp',
+    '.avif',
+    '.jxl',
+    '.gif',
+    '.bmp',
+    '.tif',
+    '.tiff',
+    '.heic',
+    '.heif',
+    '.jfif',
+]
+
+DEFAULT_EXCLUDE_KEYWORDS = ['画集', '合刊', '商业', '单行']
+DEFAULT_MAX_WORKERS = 4
+
+DELIMITER_PATTERN = re.compile(r'[;,|]+')
+
+
+def _normalize_extensions(exts):
+    normalized = []
+    for ext in exts:
+        if not ext:
+            continue
+        ext = ext.strip().lower()
+        if not ext:
+            continue
+        if not ext.startswith('.'):
+            ext = f'.{ext}'
+        if ext not in normalized:
+            normalized.append(ext)
+    return tuple(normalized)
+
+
+def normalize_user_path(raw_path: str) -> str:
+    candidate = raw_path.strip()
+    if len(candidate) >= 2 and candidate[0] == candidate[-1] and candidate[0] in {'"', "'"}:
+        candidate = candidate[1:-1]
+    candidate = os.path.expandvars(os.path.expanduser(candidate))
+    return os.path.normpath(candidate)
+
+
+def _parse_user_path_line(line: str):
+    cleaned = line.strip()
+    if not cleaned:
+        return []
+
+    if DELIMITER_PATTERN.search(cleaned):
+        candidates = [segment.strip() for segment in DELIMITER_PATTERN.split(cleaned) if segment.strip()]
+    else:
+        try:
+            candidates = shlex.split(cleaned)
+        except ValueError:
+            candidates = [cleaned]
+
+    if len(candidates) == 1 and not any(q in cleaned for q in ('"', "'")):
+        candidates = [cleaned]
+
+    normalized = []
+    for path in candidates:
+        norm_path = normalize_user_path(path)
+        if norm_path and norm_path not in normalized:
+            normalized.append(norm_path)
+    return normalized
+
+
+def _flatten_folders(folders, recursive=False):
+    if not recursive:
+        for folder in folders:
+            yield folder
+        return
+
+    queue = deque(folders)
+    while queue:
+        current = queue.popleft()
+        yield current
+        for sub in _iter_subdirectories(current):
+            queue.append(sub)
+
+
+def _process_folders_parallel(folders, convert_format, no_convert, max_workers):
+    futures = []
+    total = len(folders)
+    completed = 0
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        for folder in folders:
+            futures.append(executor.submit(process_folder, folder, convert_format, no_convert))
+
+        for future in as_completed(futures):
+            completed += 1
+            try:
+                future.result()
+                cprint(f"[并发] {completed}/{total} 个文件夹处理完成", style="green")
+            except Exception as exc:
+                cprint(f"并发任务失败: {exc}", style="bold red")
+
+
+def _render_path_instructions():
+    instructions = (
+        "- 支持多行输入，每行可输入多个路径\n"
+        "- 可使用引号包裹含空格的路径\n"
+        "- 也可使用逗号/分号/竖线分隔多个路径\n"
+        "- 输入空行结束输入"
+    )
+    if console and Panel:
+        console.print(Panel(instructions, title="路径输入说明", expand=False, border_style="cyan"))
+    else:
+        cprint("请输入需要处理的文件夹路径：", style="bold")
+        for line in instructions.split('\n'):
+            cprint(line)
+
+
+def _should_skip_folder(name: str) -> bool:
+    return name.startswith('.') or name.startswith('{')
+
+
+def _iter_subdirectories(folder):
+    try:
+        with os.scandir(folder) as it:
+            for entry in it:
+                if entry.is_dir():
+                    yield entry.path
+    except FileNotFoundError:
+        return
+
+
 def get_largest_zip(folder_path):
     """
     找到文件夹中最大的 .zip 文件。
@@ -286,8 +433,8 @@ def process_folder(root_folder, convert_format='jxl', no_convert=False):
     no_convert (bool): 是否跳过格式转换。
     """    # 检查一级文件夹本身
     if os.path.isdir(root_folder):
-        # 检查是否为隐藏文件夹
-        if not os.path.basename(root_folder).startswith('.') and not os.path.basename(root_folder).startswith('{'):
+        folder_name = os.path.basename(root_folder)
+        if not _should_skip_folder(folder_name):
             # 检查当前文件夹是否包含图片
             contains_image = folder_contains_image(root_folder)
 
@@ -303,26 +450,22 @@ def process_folder(root_folder, convert_format='jxl', no_convert=False):
             print(f"跳过隐藏文件夹或特殊目录: {root_folder}")
 
     # 检查子文件夹
-    for sub_folder in os.listdir(root_folder):
-        sub_folder_path = os.path.join(root_folder, sub_folder)
-        
-        if os.path.isdir(sub_folder_path):
-            # 检查是否为隐藏文件夹
-            if not sub_folder.startswith('.') and not sub_folder.startswith('{'):
-                # 检查当前文件夹是否包含图片
-                contains_image = folder_contains_image(sub_folder_path)
-                if not contains_image:
-                    largest_zip = get_largest_zip(sub_folder_path)
-                    if largest_zip:
-                        extract_first_image_from_zip(largest_zip, sub_folder_path, convert_format, no_convert)
-                    else:
-                        print(f"在 {sub_folder_path} 中未找到压缩包")
-                else:
-                    print(f"{sub_folder_path} 包含图片，无需处理")
+    for sub_folder_path in _iter_subdirectories(root_folder):
+        sub_folder = os.path.basename(sub_folder_path)
+        if _should_skip_folder(sub_folder):
+            print(f"跳过隐藏文件夹或特殊目录: {sub_folder_path}")
+            continue
+
+        contains_image = folder_contains_image(sub_folder_path)
+        if not contains_image:
+            largest_zip = get_largest_zip(sub_folder_path)
+            if largest_zip:
+                extract_first_image_from_zip(largest_zip, sub_folder_path, convert_format, no_convert)
             else:
-                print(f"跳过隐藏文件夹或特殊目录: {sub_folder_path}")
+                print(f"在 {sub_folder_path} 中未找到压缩包")
         else:
-            print(f"{sub_folder_path} 不是文件夹，跳过")
+            print(f"{sub_folder_path} 包含图片，无需处理")
+
 
 def get_folders_from_user():
     """
@@ -335,33 +478,23 @@ def get_folders_from_user():
     返回:
     list: 有效的文件夹路径列表
     """
-    import shlex
-    
-    print("请输入需要处理的文件夹路径：")
-    print("- 支持多行输入，每行一个路径")
-    print("- 路径包含空格时请用引号包围")
-    print("- 输入空行结束输入")
-    print()
+    _render_path_instructions()
     
     folders = []
     line_number = 1
     
     while True:
         try:
-            line = input(f"路径 {line_number}: ").strip()
-            if not line:  # 空行，结束输入
+            line = input(f"路径 {line_number}: ")
+            if not line.strip():  # 空行，结束输入
                 break
             
-            # 使用shlex.split来正确处理带引号的路径
-            try:
-                parsed_paths = shlex.split(line)
-                for path in parsed_paths:
-                    if path.strip():
-                        folders.append(path.strip())
-            except ValueError as e:
-                print(f"路径解析错误: {e}")
-                print("请检查引号是否正确匹配")
+            parsed_paths = _parse_user_path_line(line)
+            if not parsed_paths:
+                print("未识别任何有效路径，请重试。")
                 continue
+
+            folders.extend(parsed_paths)
             
             line_number += 1
             
@@ -380,7 +513,7 @@ def get_folders_from_user():
 def get_format_from_user(default: str) -> str:
     """
     交互式选择图片转换格式，默认 avif。
-
+    
     返回:
     str: 'jxl' 或 'avif'
     """
@@ -416,21 +549,27 @@ def main():
         config = {
             'general': {
                 'default_format': 'jxl',
-                'exclude_keywords': ['画集', '合刊', '商业', '单行'],
-                'image_extensions': ['.png', '.jpg', '.jpeg', '.webp', '.avif', '.jxl']
+                'exclude_keywords': DEFAULT_EXCLUDE_KEYWORDS,
+                'image_extensions': DEFAULT_IMAGE_EXTENSIONS,
+                'max_workers': DEFAULT_MAX_WORKERS,
             },
             'jxl': {'quality': 45, 'effort': 7},
             'avif': {'quality': 85}
         }
     
+    general_cfg = config.get('general', {})
+    jxl_cfg = config.get('jxl', {})
+    avif_cfg = config.get('avif', {})
+
     # 设置全局配置变量
-    global EXCLUDE_KEYWORDS, IMAGE_EXTS, DEFAULT_FORMAT, JXL_QUALITY, JXL_EFFORT, AVIF_QUALITY
-    EXCLUDE_KEYWORDS = config['general']['exclude_keywords']
-    IMAGE_EXTS = tuple(config['general']['image_extensions'])
-    DEFAULT_FORMAT = config['general']['default_format']
-    JXL_QUALITY = config['jxl']['quality']
-    JXL_EFFORT = config['jxl']['effort']
-    AVIF_QUALITY = config['avif']['quality']
+    global EXCLUDE_KEYWORDS, IMAGE_EXTS, DEFAULT_FORMAT, JXL_QUALITY, JXL_EFFORT, AVIF_QUALITY, MAX_WORKERS
+    EXCLUDE_KEYWORDS = general_cfg.get('exclude_keywords', DEFAULT_EXCLUDE_KEYWORDS)
+    IMAGE_EXTS = _normalize_extensions(general_cfg.get('image_extensions', DEFAULT_IMAGE_EXTENSIONS))
+    DEFAULT_FORMAT = general_cfg.get('default_format', 'jxl')
+    MAX_WORKERS = general_cfg.get('max_workers', DEFAULT_MAX_WORKERS)
+    JXL_QUALITY = jxl_cfg.get('quality', 45)
+    JXL_EFFORT = jxl_cfg.get('effort', 7)
+    AVIF_QUALITY = avif_cfg.get('quality', 85)
     
     # 创建命令行参数解析器
     parser = argparse.ArgumentParser(description='处理文件夹中的ZIP文件并提取封面图片')
@@ -438,6 +577,7 @@ def main():
     parser.add_argument('-r', '--recursive', action='store_true', help='是否递归处理子文件夹')
     parser.add_argument('--no-convert', action='store_true', help='不转换图片格式')
     parser.add_argument('--format', choices=['jxl', 'avif'], default=None, help='转换图片的目标格式；未提供时将交互选择 (默认: avif)')
+    parser.add_argument('--max-workers', type=int, default=None, help='并发处理的最大线程数 (默认配置或 4)')
 
     args = parser.parse_args()
     
@@ -445,15 +585,19 @@ def main():
     if not args.folders:
         folders = get_folders_from_user()
     else:
-        folders = args.folders
+        folders = []
+        for raw_path in args.folders:
+            folders.extend(_parse_user_path_line(raw_path))
 
     # 若未显式指定格式，则进行交互式选择（除非指定了不转换）
     if not args.no_convert and args.format is None:
         args.format = get_format_from_user(default=DEFAULT_FORMAT)
     
+    flattened = list(_flatten_folders(folders, recursive=args.recursive))
+
     # 检查提供的文件夹是否存在
     valid_folders = []
-    for folder in folders:
+    for folder in flattened:
         if not os.path.isdir(folder):
             print(f"错误: 文件夹 '{folder}' 不存在或不是一个目录")
         else:
@@ -462,11 +606,17 @@ def main():
     if not valid_folders:
         print("没有有效的文件夹路径，程序退出")
         return
-    # 处理每个有效的文件夹
-    for folder in valid_folders:
-        print(f"\n开始处理文件夹: {folder}")
-        process_folder(folder, args.format, args.no_convert)
-        print(f"完成处理文件夹: {folder}")
+    max_workers = max(1, args.max_workers or MAX_WORKERS)
+
+    if len(valid_folders) > 1 and max_workers > 1:
+        cprint(f"使用并发处理: {max_workers} 个线程", style="cyan")
+        _process_folders_parallel(valid_folders, args.format, args.no_convert, max_workers)
+    else:
+        # 处理每个有效的文件夹
+        for folder in valid_folders:
+            print(f"\n开始处理文件夹: {folder}")
+            process_folder(folder, args.format, args.no_convert)
+            print(f"完成处理文件夹: {folder}")
     
     print("\n所有文件夹处理完毕！")
 
