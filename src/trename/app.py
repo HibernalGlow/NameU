@@ -146,9 +146,25 @@ def main():
             help="输入要扫描的目录路径",
         )
 
+        # 排除扩展名设置
+        exclude_exts_str = st.text_input(
+            "排除扩展名",
+            value=".json,.txt,.html,.htm,.md,.log",
+            help="逗号分隔，如 .json,.txt",
+        )
+
         if st.button("🔍 扫描目录", use_container_width=True):
             try:
-                scanner = FileScanner()
+                # 解析排除扩展名
+                exclude_exts: set[str] = set()
+                if exclude_exts_str:
+                    exclude_exts = {
+                        ext.strip() if ext.strip().startswith(".") else f".{ext.strip()}"
+                        for ext in exclude_exts_str.split(",")
+                        if ext.strip()
+                    }
+
+                scanner = FileScanner(exclude_exts=exclude_exts)
                 path = Path(scan_path)
                 st.session_state.rename_json = scanner.scan(path)
                 st.session_state.base_path = path
