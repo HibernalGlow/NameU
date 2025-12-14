@@ -237,56 +237,7 @@ def main():
 
     rename_json = st.session_state.rename_json
 
-    # 统计信息
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.metric("总项目", count_total(rename_json))
-    with col2:
-        st.metric("待翻译", count_pending(rename_json))
-    with col3:
-        st.metric("可重命名", count_ready(rename_json))
-    with col4:
-        st.metric("冲突", len(st.session_state.conflicts))
-
-    st.divider()
-
-    # 基础路径设置
-    if st.session_state.base_path:
-        base_path = st.text_input(
-            "基础路径",
-            value=str(st.session_state.base_path),
-            help="重命名操作的基础路径",
-        )
-        st.session_state.base_path = Path(base_path)
-
-    # 文件树编辑
-    st.subheader("文件树")
-
-    # 获取冲突路径
-    conflict_paths = set()
-    if st.session_state.base_path:
-        validator = ConflictValidator()
-        conflicts = validator.validate(rename_json, st.session_state.base_path)
-        st.session_state.conflicts = conflicts
-        conflict_paths = {(c.src_path, c.tgt_path) for c in conflicts}
-
-    # 渲染文件树
-    new_root = []
-    for i, node in enumerate(rename_json.root):
-        new_node = render_node(
-            node,
-            st.session_state.base_path or Path.cwd(),
-            conflict_paths,
-            f"node_{i}",
-        )
-        new_root.append(new_node)
-
-    # 更新 session state
-    st.session_state.rename_json = RenameJSON(root=new_root)
-
-    st.divider()
-
-    # 操作按钮
+    # 操作按钮 - 移到顶部
     col1, col2, col3 = st.columns(3)
 
     with col1:
@@ -345,11 +296,60 @@ def main():
                 st.session_state.message = ("warning", "没有可撤销的操作")
             st.rerun()
 
+    st.divider()
+
+    # 统计信息
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("总项目", count_total(rename_json))
+    with col2:
+        st.metric("待翻译", count_pending(rename_json))
+    with col3:
+        st.metric("可重命名", count_ready(rename_json))
+    with col4:
+        st.metric("冲突", len(st.session_state.conflicts))
+
     # 显示冲突详情
     if st.session_state.conflicts:
-        st.subheader("冲突详情")
-        for conflict in st.session_state.conflicts:
-            st.warning(f"• {conflict.message}")
+        with st.expander(f"⚠️ 冲突详情 ({len(st.session_state.conflicts)})", expanded=True):
+            for conflict in st.session_state.conflicts:
+                st.warning(f"• {conflict.message}")
+
+    st.divider()
+
+    # 基础路径设置
+    if st.session_state.base_path:
+        base_path = st.text_input(
+            "基础路径",
+            value=str(st.session_state.base_path),
+            help="重命名操作的基础路径",
+        )
+        st.session_state.base_path = Path(base_path)
+
+    # 文件树编辑
+    st.subheader("文件树")
+
+    # 获取冲突路径
+    conflict_paths = set()
+    if st.session_state.base_path:
+        validator = ConflictValidator()
+        conflicts = validator.validate(rename_json, st.session_state.base_path)
+        st.session_state.conflicts = conflicts
+        conflict_paths = {(c.src_path, c.tgt_path) for c in conflicts}
+
+    # 渲染文件树
+    new_root = []
+    for i, node in enumerate(rename_json.root):
+        new_node = render_node(
+            node,
+            st.session_state.base_path or Path.cwd(),
+            conflict_paths,
+            f"node_{i}",
+        )
+        new_root.append(new_node)
+
+    # 更新 session state
+    st.session_state.rename_json = RenameJSON(root=new_root)
 
     # JSON 预览
     with st.expander("JSON 预览"):
