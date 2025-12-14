@@ -417,9 +417,7 @@ def main():
                     f"重命名完成: {result.success_count} 成功, "
                     f"{result.failed_count} 失败, {result.skipped_count} 跳过",
                 )
-                # 重新扫描
-                scanner = FileScanner()
-                st.session_state.rename_json = scanner.scan(st.session_state.base_path)
+                # 不自动重新扫描，保留当前数据让用户决定
                 st.rerun()
 
     with col3:
@@ -431,12 +429,7 @@ def main():
                     "success",
                     f"撤销完成: {result.success_count} 成功",
                 )
-                # 重新扫描
-                if st.session_state.base_path:
-                    scanner = FileScanner()
-                    st.session_state.rename_json = scanner.scan(
-                        st.session_state.base_path
-                    )
+                # 不自动重新扫描，保留当前数据让用户决定
             else:
                 st.session_state.message = ("warning", "没有可撤销的操作")
             st.rerun()
