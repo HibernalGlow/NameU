@@ -42,28 +42,83 @@ def scan(
         bool,
         typer.Option("--hidden", help="包含隐藏文件"),
     ] = False,
+    exclude: Annotated[
+        Optional[str],
+        typer.Option("-e", "--exclude", help="排除的扩展名，逗号分隔（如 .json,.txt）"),
+    ] = ".json,.txt,.html,.htm,.md,.log",
+    split: Annotated[
+        int,
+        typer.Option("-s", "--split", help="分段行数（0=不分段，默认1000）"),
+    ] = 1000,
+    compact: Annotated[
+        bool,
+        typer.Option("-c", "--compact", help="紧凑格式（文件单行）"),
+    ] = False,
 ) -> None:
     """扫描目录生成 JSON 结构"""
+    from trename.scanner import DEFAULT_EXCLUDE_EXTS, split_json
+
     try:
-        scanner = FileScanner(ignore_hidden=not include_hidden)
+        # 解析排除扩展名
+        exclude_exts: set[str] = set()
+        if exclude:
+            exclude_exts = {
+                ext.strip() if ext.strip().startswith(".") else f".{ext.strip()}"
+                for ext in exclude.split(",")
+                if ext.strip()
+            }
+
+        scanner = FileScanner(
+            ignore_hidden=not include_hidden,
+            exclude_exts=exclude_exts,
+        )
 
         if include_root:
             rename_json = scanner.scan_as_single_dir(directory)
         else:
             rename_json = scanner.scan(directory)
 
-        json_str = scanner.to_json(rename_json)
+        # 分段处理
+        if split > 0:
+            segments = split_json(rename_json, max_lines=split)
+            console.print(f"[cyan]分段数: {len(segments)}[/cyan]")
 
-        if output:
-            output.write_text(json_str, encoding="utf-8")
-            console.print(f"[green]✓[/green] JSON 已保存到: {output}")
+            for i, seg in enumerate(segments):
+                if compact:
+                    json_str = scanner.to_compact_json(seg)
+                else:
+                    json_str = scanner.to_json(seg)
+
+                if output:
+                    # 分段输出到多个文件
+                    seg_path = output.with_stem(f"{output.stem}_{i+1}")
+                    seg_path.write_text(json_str, encoding="utf-8")
+                    console.print(f"[green]✓[/green] 第 {i+1} 段已保存到: {seg_path}")
+                else:
+                    # 分段复制到剪贴板（只复制第一段，提示用户）
+                    if i == 0:
+                        ClipboardHandler.copy(json_str)
+                        console.print(f"[green]✓[/green] 第 1 段已复制到剪贴板")
+                    console.print(f"  第 {i+1} 段: {count_total(seg)} 项")
         else:
-            ClipboardHandler.copy(json_str)
-            console.print("[green]✓[/green] JSON 已复制到剪贴板")
+            # 不分段
+            if compact:
+                json_str = scanner.to_compact_json(rename_json)
+            else:
+                json_str = scanner.to_json(rename_json)
+
+            if output:
+                output.write_text(json_str, encoding="utf-8")
+                console.print(f"[green]✓[/green] JSON 已保存到: {output}")
+            else:
+                ClipboardHandler.copy(json_str)
+                console.print("[green]✓[/green] JSON 已复制到剪贴板")
 
         # 显示统计
         total = count_total(rename_json)
         console.print(f"  扫描项目数: {total}")
+        if exclude_exts:
+            console.print(f"  排除扩展名: {', '.join(sorted(exclude_exts))}")
 
     except FileNotFoundError as e:
         console.print(f"[red]错误:[/red] {e}")

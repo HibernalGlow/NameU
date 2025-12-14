@@ -164,37 +164,117 @@ def main():
         # 导入 JSON
         st.subheader("2. 导入 JSON")
 
-        if st.button("📋 从剪贴板粘贴", use_container_width=True):
-            try:
-                json_str = ClipboardHandler.paste()
-                st.session_state.rename_json = RenameJSON.model_validate_json(json_str)
-                st.session_state.message = ("success", "从剪贴板导入成功")
-                st.rerun()
-            except Exception as e:
-                st.session_state.message = ("error", f"导入失败: {e}")
-                st.rerun()
+        import_tab1, import_tab2 = st.tabs(["📋 剪贴板", "📁 文件"])
 
-        uploaded_file = st.file_uploader("上传 JSON 文件", type=["json"])
-        if uploaded_file:
-            try:
-                json_str = uploaded_file.read().decode("utf-8")
-                st.session_state.rename_json = RenameJSON.model_validate_json(json_str)
-                st.session_state.message = ("success", "文件导入成功")
-                st.rerun()
-            except Exception as e:
-                st.session_state.message = ("error", f"导入失败: {e}")
+        with import_tab1:
+            if st.button("从剪贴板导入", use_container_width=True, key="import_clip"):
+                try:
+                    json_str = ClipboardHandler.paste()
+                    new_json = RenameJSON.model_validate_json(json_str)
+                    # 合并到现有数据
+                    if st.session_state.rename_json:
+                        st.session_state.rename_json.root.extend(new_json.root)
+                    else:
+                        st.session_state.rename_json = new_json
+                    st.session_state.message = ("success", f"导入成功: {count_total(new_json)} 项")
+                    st.rerun()
+                except Exception as e:
+                    st.session_state.message = ("error", f"导入失败: {e}")
+                    st.rerun()
+
+            if st.button("替换当前数据", use_container_width=True, key="replace_clip"):
+                try:
+                    json_str = ClipboardHandler.paste()
+                    st.session_state.rename_json = RenameJSON.model_validate_json(json_str)
+                    st.session_state.message = ("success", "从剪贴板替换成功")
+                    st.rerun()
+                except Exception as e:
+                    st.session_state.message = ("error", f"导入失败: {e}")
+                    st.rerun()
+
+        with import_tab2:
+            uploaded_files = st.file_uploader(
+                "选择 JSON 文件",
+                type=["json"],
+                accept_multiple_files=True,
+                key="file_uploader",
+            )
+            if uploaded_files:
+                try:
+                    total_imported = 0
+                    for uploaded_file in uploaded_files:
+                        json_str = uploaded_file.read().decode("utf-8")
+                        new_json = RenameJSON.model_validate_json(json_str)
+                        if st.session_state.rename_json:
+                            st.session_state.rename_json.root.extend(new_json.root)
+                        else:
+                            st.session_state.rename_json = new_json
+                        total_imported += count_total(new_json)
+                    st.session_state.message = ("success", f"导入 {len(uploaded_files)} 个文件, {total_imported} 项")
+                    st.rerun()
+                except Exception as e:
+                    st.session_state.message = ("error", f"导入失败: {e}")
 
         st.divider()
 
         # 导出
         st.subheader("3. 导出")
 
-        if st.button("📤 复制到剪贴板", use_container_width=True):
-            if st.session_state.rename_json:
-                json_str = st.session_state.rename_json.model_dump_json(indent=2)
-                ClipboardHandler.copy(json_str)
-                st.session_state.message = ("success", "已复制到剪贴板")
-                st.rerun()
+        from trename.scanner import split_json
+
+        # 分段设置
+        max_lines = st.number_input("分段行数", min_value=50, max_value=5000, value=1000, step=100)
+        use_compact = st.checkbox("紧凑格式", value=True)
+
+        if st.session_state.rename_json:
+            segments = split_json(st.session_state.rename_json, max_lines=max_lines)
+            st.text(f"共 {len(segments)} 段")
+
+            export_tab1, export_tab2 = st.tabs(["📋 复制", "💾 下载"])
+
+            with export_tab1:
+                if len(segments) == 1:
+                    if st.button("复制到剪贴板", use_container_width=True, key="copy_all"):
+                        scanner = FileScanner()
+                        if use_compact:
+                            json_str = scanner.to_compact_json(segments[0])
+                        else:
+                            json_str = scanner.to_json(segments[0])
+                        ClipboardHandler.copy(json_str)
+                        st.session_state.message = ("success", "已复制到剪贴板")
+                        st.rerun()
+                else:
+                    # 分段选择器
+                    seg_idx = st.selectbox(
+                        "选择分段",
+                        range(len(segments)),
+                        format_func=lambda i: f"第 {i+1} 段 ({count_total(segments[i])} 项)",
+                    )
+                    if st.button(f"复制第 {seg_idx+1} 段", use_container_width=True, key="copy_seg"):
+                        scanner = FileScanner()
+                        if use_compact:
+                            json_str = scanner.to_compact_json(segments[seg_idx])
+                        else:
+                            json_str = scanner.to_json(segments[seg_idx])
+                        ClipboardHandler.copy(json_str)
+                        st.session_state.message = ("success", f"第 {seg_idx+1} 段已复制")
+                        st.rerun()
+
+            with export_tab2:
+                scanner = FileScanner()
+                for i, seg in enumerate(segments):
+                    if use_compact:
+                        json_str = scanner.to_compact_json(seg)
+                    else:
+                        json_str = scanner.to_json(seg)
+                    st.download_button(
+                        f"下载第 {i+1} 段 ({count_total(seg)} 项)",
+                        data=json_str,
+                        file_name=f"rename_{i+1}.json",
+                        mime="application/json",
+                        use_container_width=True,
+                        key=f"download_{i}",
+                    )
 
         st.divider()
 
