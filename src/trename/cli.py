@@ -26,9 +26,9 @@ console = Console()
 
 @app.command()
 def scan(
-    directory: Annotated[
-        Path,
-        typer.Argument(help="要扫描的目录路径"),
+    directories: Annotated[
+        list[Path],
+        typer.Argument(help="要扫描的目录路径（支持多个）"),
     ],
     output: Annotated[
         Optional[Path],
@@ -37,7 +37,7 @@ def scan(
     include_root: Annotated[
         bool,
         typer.Option("--include-root", help="将目录本身作为根节点"),
-    ] = False,
+    ] = True,
     include_hidden: Annotated[
         bool,
         typer.Option("--hidden", help="包含隐藏文件"),
@@ -55,8 +55,8 @@ def scan(
         typer.Option("-c", "--compact", help="紧凑格式（文件单行）"),
     ] = False,
 ) -> None:
-    """扫描目录生成 JSON 结构"""
-    from trename.scanner import DEFAULT_EXCLUDE_EXTS, split_json
+    """扫描目录生成 JSON 结构（支持多文件夹合并）"""
+    from trename.scanner import split_json
 
     try:
         # 解析排除扩展名
@@ -73,10 +73,15 @@ def scan(
             exclude_exts=exclude_exts,
         )
 
-        if include_root:
-            rename_json = scanner.scan_as_single_dir(directory)
-        else:
-            rename_json = scanner.scan(directory)
+        # 扫描所有目录并合并
+        rename_json = RenameJSON(root=[])
+        for directory in directories:
+            if include_root:
+                result = scanner.scan_as_single_dir(directory)
+            else:
+                result = scanner.scan(directory)
+            rename_json.root.extend(result.root)
+            console.print(f"  扫描: {directory} ({count_total(result)} 项)")
 
         # 分段处理
         if split > 0:
@@ -116,7 +121,7 @@ def scan(
 
         # 显示统计
         total = count_total(rename_json)
-        console.print(f"  扫描项目数: {total}")
+        console.print(f"[green]总计: {total} 项[/green]")
         if exclude_exts:
             console.print(f"  排除扩展名: {', '.join(sorted(exclude_exts))}")
 

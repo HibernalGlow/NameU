@@ -140,10 +140,11 @@ def main():
 
         # 扫描目录
         st.subheader("1. 扫描目录")
-        scan_path = st.text_input(
-            "目录路径",
+        scan_paths_str = st.text_area(
+            "目录路径（每行一个，支持多文件夹）",
             value=str(Path.cwd()),
-            help="输入要扫描的目录路径",
+            height=100,
+            help="每行输入一个目录路径，支持多文件夹合并扫描",
         )
 
         # 排除扩展名设置
@@ -153,27 +154,75 @@ def main():
             help="逗号分隔，如 .json,.txt",
         )
 
-        if st.button("🔍 扫描目录", use_container_width=True):
-            try:
-                # 解析排除扩展名
-                exclude_exts: set[str] = set()
-                if exclude_exts_str:
-                    exclude_exts = {
-                        ext.strip() if ext.strip().startswith(".") else f".{ext.strip()}"
-                        for ext in exclude_exts_str.split(",")
-                        if ext.strip()
-                    }
+        col_scan1, col_scan2 = st.columns(2)
+        with col_scan1:
+            if st.button("🔍 扫描(合并)", use_container_width=True):
+                try:
+                    # 解析排除扩展名
+                    exclude_exts: set[str] = set()
+                    if exclude_exts_str:
+                        exclude_exts = {
+                            ext.strip() if ext.strip().startswith(".") else f".{ext.strip()}"
+                            for ext in exclude_exts_str.split(",")
+                            if ext.strip()
+                        }
 
-                scanner = FileScanner(exclude_exts=exclude_exts)
-                path = Path(scan_path)
-                st.session_state.rename_json = scanner.scan(path)
-                st.session_state.base_path = path
-                st.session_state.conflicts = []
-                st.session_state.message = ("success", f"扫描完成: {path}")
-                st.rerun()
-            except Exception as e:
-                st.session_state.message = ("error", f"扫描失败: {e}")
-                st.rerun()
+                    scanner = FileScanner(exclude_exts=exclude_exts)
+
+                    # 解析多个目录路径
+                    paths = [Path(p.strip()) for p in scan_paths_str.strip().split("\n") if p.strip()]
+
+                    # 合并扫描
+                    if st.session_state.rename_json is None:
+                        st.session_state.rename_json = RenameJSON(root=[])
+
+                    total_scanned = 0
+                    for path in paths:
+                        result = scanner.scan_as_single_dir(path)
+                        st.session_state.rename_json.root.extend(result.root)
+                        total_scanned += count_total(result)
+
+                    st.session_state.base_path = paths[0].parent if paths else Path.cwd()
+                    st.session_state.conflicts = []
+                    st.session_state.message = ("success", f"扫描完成: {len(paths)} 个目录, {total_scanned} 项")
+                    st.rerun()
+                except Exception as e:
+                    st.session_state.message = ("error", f"扫描失败: {e}")
+                    st.rerun()
+
+        with col_scan2:
+            if st.button("🔄 扫描(替换)", use_container_width=True):
+                try:
+                    # 解析排除扩展名
+                    exclude_exts: set[str] = set()
+                    if exclude_exts_str:
+                        exclude_exts = {
+                            ext.strip() if ext.strip().startswith(".") else f".{ext.strip()}"
+                            for ext in exclude_exts_str.split(",")
+                            if ext.strip()
+                        }
+
+                    scanner = FileScanner(exclude_exts=exclude_exts)
+
+                    # 解析多个目录路径
+                    paths = [Path(p.strip()) for p in scan_paths_str.strip().split("\n") if p.strip()]
+
+                    # 替换扫描
+                    st.session_state.rename_json = RenameJSON(root=[])
+
+                    total_scanned = 0
+                    for path in paths:
+                        result = scanner.scan_as_single_dir(path)
+                        st.session_state.rename_json.root.extend(result.root)
+                        total_scanned += count_total(result)
+
+                    st.session_state.base_path = paths[0].parent if paths else Path.cwd()
+                    st.session_state.conflicts = []
+                    st.session_state.message = ("success", f"扫描完成: {len(paths)} 个目录, {total_scanned} 项")
+                    st.rerun()
+                except Exception as e:
+                    st.session_state.message = ("error", f"扫描失败: {e}")
+                    st.rerun()
 
         st.divider()
 
