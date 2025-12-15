@@ -141,21 +141,62 @@ class ConflictValidator:
         return conflicts
 
     def get_valid_operations(
-        self, rename_json: RenameJSON, base_path: Path
+        self, rename_json: RenameJSON, base_path: Path, smart_dedup: bool = True
     ) -> tuple[list[tuple[Path, Path]], list[Conflict]]:
         """获取有效的重命名操作和冲突
 
         Args:
             rename_json: RenameJSON 结构
             base_path: 基础路径
+            smart_dedup: 智能去重，重复目标只保留第一个
 
         Returns:
             (有效操作列表, 冲突列表)
         """
         conflicts = self.validate(rename_json, base_path)
+        
+        # 智能去重：对于重复目标，只保留第一个，其他标记为跳过
+        if smart_dedup:
+            # 找出重复目标冲突
+            dup_conflicts = [c for c in conflicts if c.type == ConflictType.DUPLICATE_TARGET]
+            # 按目标路径分组
+            dup_by_target: dict[Path, list[Conflict]] = defaultdict(list)
+            for c in dup_conflicts:
+                dup_by_target[c.tgt_path].append(c)
+            
+            # 对于每个重复目标，保留第一个源，其他移除
+            skip_paths: set[tuple[Path, Path]] = set()
+            kept_targets: set[Path] = set()
+            
+            for tgt_path, dup_list in dup_by_target.items():
+                # 按源路径排序，保留第一个
+                sorted_dups = sorted(dup_list, key=lambda c: str(c.src_path))
+                # 第一个保留，其他跳过
+                for i, c in enumerate(sorted_dups):
+                    if i == 0:
+                        kept_targets.add(tgt_path)
+                    else:
+                        skip_paths.add((c.src_path, c.tgt_path))
+            
+            # 从冲突列表中移除已处理的重复目标（保留的那个）
+            conflicts = [
+                c for c in conflicts 
+                if not (c.type == ConflictType.DUPLICATE_TARGET and c.tgt_path in kept_targets and (c.src_path, c.tgt_path) not in skip_paths)
+            ]
+            # 更新跳过的冲突消息
+            for i, c in enumerate(conflicts):
+                if (c.src_path, c.tgt_path) in skip_paths:
+                    conflicts[i] = Conflict(
+                        type=c.type,
+                        src_path=c.src_path,
+                        tgt_path=c.tgt_path,
+                        message=f"跳过重复: {c.src_path.name} (另一个同名源已处理)",
+                    )
+        
         conflict_paths = {(c.src_path, c.tgt_path) for c in conflicts}
 
         operations: list[tuple[Path, Path]] = []
+        seen_targets: set[Path] = set()  # 已添加的目标路径
         base_path = Path(base_path).resolve()
 
         def collect_operations(node: RenameNode, parent_path: Path) -> None:
@@ -163,8 +204,10 @@ class ConflictValidator:
                 if node.is_ready:
                     src = parent_path / node.src
                     tgt = parent_path / node.tgt
-                    if (src, tgt) not in conflict_paths:
+                    # 跳过冲突和已处理的目标
+                    if (src, tgt) not in conflict_paths and tgt not in seen_targets:
                         operations.append((src, tgt))
+                        seen_targets.add(tgt)
 
             elif isinstance(node, DirNode):
                 src_path = parent_path / node.src_dir
@@ -174,8 +217,9 @@ class ConflictValidator:
                 # 再处理目录本身
                 if node.is_ready:
                     tgt = parent_path / node.tgt_dir
-                    if (src_path, tgt) not in conflict_paths:
+                    if (src_path, tgt) not in conflict_paths and tgt not in seen_targets:
                         operations.append((src_path, tgt))
+                        seen_targets.add(tgt)
 
         for node in rename_json.root:
             collect_operations(node, base_path)
