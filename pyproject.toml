@@ -77,7 +77,7 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["*"]
+include = ["*", "*.*"]
 exclude = ["tests*"]
 
 [tool.setuptools.package-data]
