@@ -151,7 +151,7 @@ class FileScanner:
 
     @staticmethod
     def from_json(json_str: str) -> RenameJSON:
-        """从 JSON 字符串解析 RenameJSON
+        """从 JSON 字符串解析 RenameJSON（支持宽松格式）
 
         Args:
             json_str: JSON 字符串
@@ -162,7 +162,27 @@ class FileScanner:
         Raises:
             pydantic.ValidationError: JSON 格式或结构无效
         """
-        return RenameJSON.model_validate_json(json_str)
+        # 尝试修复常见的 JSON 格式问题
+        fixed_str = fix_json(json_str)
+        return RenameJSON.model_validate_json(fixed_str)
+
+
+def fix_json(json_str: str) -> str:
+    """修复常见的 JSON 格式问题
+
+    Args:
+        json_str: 原始 JSON 字符串
+
+    Returns:
+        修复后的 JSON 字符串
+    """
+    import re
+
+    # 移除 trailing commas（末尾逗号）
+    # 匹配 }, ] 或 " 后面跟着逗号，然后是 ] 或 }
+    fixed = re.sub(r',(\s*[\]\}])', r'\1', json_str)
+
+    return fixed
 
 
 def _compact_json(data: dict, indent: int = 0) -> str:

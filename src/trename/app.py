@@ -235,7 +235,8 @@ def main():
             if st.button("从剪贴板导入", use_container_width=True, key="import_clip"):
                 try:
                     json_str = ClipboardHandler.paste()
-                    new_json = RenameJSON.model_validate_json(json_str)
+                    # 使用宽松解析（自动修复 trailing comma）
+                    new_json = FileScanner.from_json(json_str)
                     # 合并到现有数据
                     if st.session_state.rename_json:
                         st.session_state.rename_json.root.extend(new_json.root)
@@ -250,7 +251,8 @@ def main():
             if st.button("替换当前数据", use_container_width=True, key="replace_clip"):
                 try:
                     json_str = ClipboardHandler.paste()
-                    st.session_state.rename_json = RenameJSON.model_validate_json(json_str)
+                    # 使用宽松解析
+                    st.session_state.rename_json = FileScanner.from_json(json_str)
                     st.session_state.message = ("success", "从剪贴板替换成功")
                     st.rerun()
                 except Exception as e:
@@ -269,7 +271,8 @@ def main():
                     total_imported = 0
                     for uploaded_file in uploaded_files:
                         json_str = uploaded_file.read().decode("utf-8")
-                        new_json = RenameJSON.model_validate_json(json_str)
+                        # 使用宽松解析
+                        new_json = FileScanner.from_json(json_str)
                         if st.session_state.rename_json:
                             st.session_state.rename_json.root.extend(new_json.root)
                         else:

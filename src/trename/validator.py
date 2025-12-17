@@ -3,6 +3,7 @@
 检测重命名操作中的冲突：目标已存在、重复目标等。
 """
 
+import re
 from collections import defaultdict
 from pathlib import Path
 
@@ -14,6 +15,27 @@ from trename.models import (
     RenameJSON,
     RenameNode,
 )
+
+# Windows 禁止的文件名字符
+WINDOWS_FORBIDDEN_CHARS = r'[<>:"/\\|?*]'
+
+
+def sanitize_filename(name: str) -> str:
+    """清理文件名，替换 Windows 禁止的字符为空格
+
+    Args:
+        name: 原始文件名
+
+    Returns:
+        清理后的文件名
+    """
+    # 替换禁止字符为空格
+    sanitized = re.sub(WINDOWS_FORBIDDEN_CHARS, " ", name)
+    # 合并连续空格
+    sanitized = re.sub(r" +", " ", sanitized)
+    # 去除首尾空格
+    sanitized = sanitized.strip()
+    return sanitized
 
 
 class ConflictValidator:
@@ -203,7 +225,9 @@ class ConflictValidator:
             if isinstance(node, FileNode):
                 if node.is_ready:
                     src = parent_path / node.src
-                    tgt = parent_path / node.tgt
+                    # 预先清理目标文件名中的 Windows 禁止字符
+                    tgt_name = sanitize_filename(node.tgt)
+                    tgt = parent_path / tgt_name
                     # 跳过冲突和已处理的目标
                     if (src, tgt) not in conflict_paths and tgt not in seen_targets:
                         operations.append((src, tgt))
@@ -216,7 +240,9 @@ class ConflictValidator:
                     collect_operations(child, src_path)
                 # 再处理目录本身
                 if node.is_ready:
-                    tgt = parent_path / node.tgt_dir
+                    # 预先清理目标目录名中的 Windows 禁止字符
+                    tgt_name = sanitize_filename(node.tgt_dir)
+                    tgt = parent_path / tgt_name
                     if (src_path, tgt) not in conflict_paths and tgt not in seen_targets:
                         operations.append((src_path, tgt))
                         seen_targets.add(tgt)

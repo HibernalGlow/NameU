@@ -117,20 +117,15 @@ class FileRenamer:
         Returns:
             清理后的文件名
         """
-        # 替换禁止字符为空格
-        sanitized = re.sub(WINDOWS_FORBIDDEN_CHARS, " ", name)
-        # 合并连续空格
-        sanitized = re.sub(r" +", " ", sanitized)
-        # 去除首尾空格
-        sanitized = sanitized.strip()
-        return sanitized
+        from trename.validator import sanitize_filename
+        return sanitize_filename(name)
 
     def _rename_single(self, src: Path, tgt: Path) -> bool:
         """重命名单个文件/目录
 
         Args:
             src: 源路径
-            tgt: 目标路径
+            tgt: 目标路径（已在 validator 中清理）
 
         Returns:
             是否成功
@@ -139,13 +134,7 @@ class FileRenamer:
             logger.warning(f"源文件不存在: {src}")
             return False
 
-        # 预处理：清理目标文件名中的 Windows 禁止字符
-        sanitized_name = self._sanitize_filename(tgt.name)
-        if sanitized_name != tgt.name:
-            tgt = tgt.parent / sanitized_name
-            logger.info(f"文件名已清理: {tgt.name}")
-
-        if tgt.exists():
+        if tgt.exists() and tgt != src:
             logger.warning(f"目标已存在: {tgt}")
             return False
 
