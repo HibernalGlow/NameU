@@ -385,3 +385,63 @@ class TestJSONFix:
         result = FileScanner.from_json(bad_json)
         assert len(result.root) == 1
         assert result.root[0].src == "test.txt"
+
+
+
+class TestRealWorldJSON:
+    """测试真实场景 JSON"""
+
+    def test_parse_fate_json(self):
+        """测试解析 Fate 相关 JSON（带斜杠和末尾逗号）"""
+        json_str = '''{"root": [{"src_dir": "[阿薰kaori]","tgt_dir": "[阿薰kaori]","children": [{"src": "阿薰 kaOri - FGO 白 Saber.zip", "tgt": "(Fate/Grand Order · 阿尔托莉雅) FGO 白 Saber [阿薰 kaOri].zip"},{"src": "阿薰 kaOri NO.012 斯卡哈兔女郎 [18P-690MB].zip", "tgt": "012. (Fate/Grand Order · 斯卡哈#兔女郎) 斯卡哈兔女郎 [阿薰 kaOri] [18P-690MB].zip"},]}]}'''
+        
+        result = FileScanner.from_json(json_str)
+        
+        assert len(result.root) == 1
+        assert result.root[0].src_dir == "[阿薰kaori]"
+        assert len(result.root[0].children) == 2
+
+    def test_sanitize_fate_filename(self):
+        """测试清理 Fate 文件名中的斜杠"""
+        from trename.validator import sanitize_filename
+        
+        name = "(Fate/Grand Order · 阿尔托莉雅) FGO 白 Saber [阿薰 kaOri].zip"
+        result = sanitize_filename(name)
+        
+        assert "/" not in result
+        assert result == "(Fate Grand Order · 阿尔托莉雅) FGO 白 Saber [阿薰 kaOri].zip"
+
+    def test_rename_with_fate_filename(self):
+        """测试重命名带斜杠的 Fate 文件名"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # 创建源文件
+            src_dir = Path(tmpdir) / "[阿薰kaori]"
+            src_dir.mkdir()
+            src_file = src_dir / "阿薰 kaOri - FGO 白 Saber.zip"
+            src_file.write_text("test")
+
+            rename_json = RenameJSON(
+                root=[
+                    DirNode(
+                        src_dir="[阿薰kaori]",
+                        tgt_dir="[阿薰kaori]",
+                        children=[
+                            FileNode(
+                                src="阿薰 kaOri - FGO 白 Saber.zip",
+                                tgt="(Fate/Grand Order · 阿尔托莉雅) FGO 白 Saber [阿薰 kaOri].zip",
+                            )
+                        ],
+                    )
+                ]
+            )
+
+            renamer = FileRenamer()
+            result = renamer.rename_batch(rename_json, Path(tmpdir))
+
+            assert result.success_count == 1
+            assert result.failed_count == 0
+            
+            # 验证文件已重命名（斜杠被替换为空格）
+            expected_name = "(Fate Grand Order · 阿尔托莉雅) FGO 白 Saber [阿薰 kaOri].zip"
+            assert (src_dir / expected_name).exists()
+            assert not src_file.exists()
