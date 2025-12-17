@@ -4,6 +4,7 @@
 """
 
 import logging
+import re
 import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -22,6 +23,9 @@ if TYPE_CHECKING:
     from trename.undo import UndoManager
 
 logger = logging.getLogger(__name__)
+
+# Windows 禁止的文件名字符
+WINDOWS_FORBIDDEN_CHARS = r'[<>:"/\\|?*]'
 
 
 class FileRenamer:
@@ -104,6 +108,23 @@ class FileRenamer:
             operation_id=operation_id,
         )
 
+    def _sanitize_filename(self, name: str) -> str:
+        """清理文件名，替换 Windows 禁止的字符为空格
+
+        Args:
+            name: 原始文件名
+
+        Returns:
+            清理后的文件名
+        """
+        # 替换禁止字符为空格
+        sanitized = re.sub(WINDOWS_FORBIDDEN_CHARS, " ", name)
+        # 合并连续空格
+        sanitized = re.sub(r" +", " ", sanitized)
+        # 去除首尾空格
+        sanitized = sanitized.strip()
+        return sanitized
+
     def _rename_single(self, src: Path, tgt: Path) -> bool:
         """重命名单个文件/目录
 
@@ -117,6 +138,12 @@ class FileRenamer:
         if not src.exists():
             logger.warning(f"源文件不存在: {src}")
             return False
+
+        # 预处理：清理目标文件名中的 Windows 禁止字符
+        sanitized_name = self._sanitize_filename(tgt.name)
+        if sanitized_name != tgt.name:
+            tgt = tgt.parent / sanitized_name
+            logger.info(f"文件名已清理: {tgt.name}")
 
         if tgt.exists():
             logger.warning(f"目标已存在: {tgt}")
