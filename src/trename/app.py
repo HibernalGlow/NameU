@@ -23,6 +23,43 @@ from trename.scanner import FileScanner
 from trename.undo import UndoManager
 from trename.validator import ConflictValidator
 
+import re
+
+
+def parse_paths(paths_str: str) -> list[Path]:
+    """解析路径字符串，支持单双引号包裹的路径
+    
+    支持格式：
+    - 每行一个路径
+    - 单引号包裹: 'path with spaces'
+    - 双引号包裹: "path with spaces"
+    - 混合使用
+    """
+    paths = []
+    # 匹配单引号、双引号包裹的路径，或普通路径
+    pattern = r'"([^"]+)"|\'([^\']+)\'|([^\s\'"]+)'
+    
+    for line in paths_str.strip().split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+        
+        # 检查是否包含引号
+        if '"' in line or "'" in line:
+            # 使用正则提取所有路径
+            matches = re.findall(pattern, line)
+            for match in matches:
+                # match 是元组 (双引号内容, 单引号内容, 普通内容)
+                path_str = match[0] or match[1] or match[2]
+                if path_str:
+                    paths.append(Path(path_str))
+        else:
+            # 普通路径，直接添加
+            paths.append(Path(line))
+    
+    return paths
+
+
 # 页面配置
 st.set_page_config(
     page_title="trename - 文件批量重命名",
@@ -169,8 +206,8 @@ def main():
 
                     scanner = FileScanner(exclude_exts=exclude_exts)
 
-                    # 解析多个目录路径
-                    paths = [Path(p.strip()) for p in scan_paths_str.strip().split("\n") if p.strip()]
+                    # 解析多个目录路径（支持引号包裹）
+                    paths = parse_paths(scan_paths_str)
 
                     # 合并扫描
                     if st.session_state.rename_json is None:
@@ -204,8 +241,8 @@ def main():
 
                     scanner = FileScanner(exclude_exts=exclude_exts)
 
-                    # 解析多个目录路径
-                    paths = [Path(p.strip()) for p in scan_paths_str.strip().split("\n") if p.strip()]
+                    # 解析多个目录路径（支持引号包裹）
+                    paths = parse_paths(scan_paths_str)
 
                     # 替换扫描
                     st.session_state.rename_json = RenameJSON(root=[])
