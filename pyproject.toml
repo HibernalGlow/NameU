@@ -67,7 +67,6 @@ timeu = "timeu.__main__:main"
 nameset = "nameset.__main__:main"
 sensi2pinyin = "sensi2pinyin.__main__:main"
 pathr = "pathr.__main__:main"
-samea = "samea.__main__:main"
 [build-system]
 requires = ["setuptools>=61.0.0", "wheel"]
 build-backend = "setuptools.build_meta"
