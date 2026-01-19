@@ -38,9 +38,12 @@ class ProgressManager:
         )
         self.overall_task = None
         self.log_handler_id = None
+        self.enabled = False
 
     def start(self):
         """启动 Live 显示"""
+        if not self.enabled:
+            return
         # 拦截 loguru 日志并重定向到 rich console
         from loguru import logger
         try:
@@ -162,9 +165,10 @@ class ProgressManager:
 # 全局单例以便简单调用
 _manager: Optional[ProgressManager] = None
 
-def init_progress(console: Optional[Console] = None):
+def init_progress(console: Optional[Console] = None, enable: bool = False):
     global _manager
     _manager = ProgressManager(console)
+    _manager.enabled = enable
     return _manager
 
 def get_manager() -> Optional[ProgressManager]:

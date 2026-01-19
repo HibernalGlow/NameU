@@ -503,10 +503,11 @@ def process_folders(base_path, add_artist_name_enabled=True, convert_sensitive_e
     total_sensitive = 0
 
     # 逐个处理画师文件夹 (增加全局进度条)
-    pm = init_progress()
+    USE_TREE_UI = False  # 暂时关闭文件树显示
+    pm = init_progress(enable=USE_TREE_UI)
     pm.start()
     try:
-        with tqdm(total=len(artist_folders), desc="总体进度", unit="folder", position=0, leave=True, ncols=0, disable=True) as gbar:
+        with tqdm(total=len(artist_folders), desc="总体进度", unit="folder", position=0, leave=True, ncols=0, disable=USE_TREE_UI) as gbar:
             for folder in artist_folders:
                 try:
                     artist_path = os.path.join(base_path, folder)
