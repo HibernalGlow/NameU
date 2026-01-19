@@ -11,6 +11,7 @@ from .filename_processor import (
     format_folder_name, has_artist_name, convert_sensitive_words_to_pinyin,
     check_sensitive_word, get_sensitive_words_in_filename, get_unique_filename_with_pinyin_conversion
 )
+from .progress import init_progress, get_manager, FileStatus
 
 # 导入压缩包ID管理模块
 try:
@@ -86,8 +87,11 @@ def process_files_in_directory(directory, artist_name, add_artist_name_enabled=T
 
     # 统计信息
     files = files_info
+    pm = get_manager()
     for filename in files:
         original_file_path = os.path.join(directory, filename)
+        if pm: pm.add_file(original_file_path, directory)
+        
         filename = detect_and_decode_filename(filename)
         new_filename = filename
         
@@ -145,7 +149,10 @@ def process_files_in_directory(directory, artist_name, add_artist_name_enabled=T
                                 artist_name if artist_name not in exclude_keywords else None
                             )
                             auto_db_records_created += 1
+                    
+                    if pm: pm.update_status(original_file_path, FileStatus.DONE)
                 except Exception as e:
+                    if pm: pm.update_status(original_file_path, FileStatus.FAILED)
                     logger.error(f"补写ID时出错 {original_file_path}: {e}")
 
     # 输出统计信息（仅当前目录作用域）
@@ -171,6 +178,7 @@ def process_files_in_directory(directory, artist_name, add_artist_name_enabled=T
                 new_file_path = os.path.join(directory, new_filename)
                 
                 try:
+                    if pm: pm.update_status(original_file_path, FileStatus.PROCESSING)
                     # 检查是否为压缩文件并且启用了ID跟踪
                     is_archive = original_file_path.lower().endswith(ARCHIVE_EXTENSIONS)
                     
@@ -183,13 +191,16 @@ def process_files_in_directory(directory, artist_name, add_artist_name_enabled=T
                         )
                         if success:
                             new_file_path = os.path.join(directory, new_filename)
+                            if pm: pm.update_status(original_file_path, FileStatus.DONE)
                         else:
                             logger.error(f"ID跟踪重命名失败，回退到传统方式: {filename}")
                             # 回退到传统重命名方式
                             os.rename(original_file_path, new_file_path)
+                            if pm: pm.update_status(original_file_path, FileStatus.DONE)
                     else:
                         # 传统重命名方式
                         os.rename(original_file_path, new_file_path)
+                        if pm: pm.update_status(original_file_path, FileStatus.DONE)
                     
                     # 恢复时间戳（对于传统方式）
                     if not (is_archive and ID_TRACKING_AVAILABLE and track_ids):
@@ -303,6 +314,11 @@ def _build_plan(directory, artist_name, add_artist_name_enabled, convert_sensiti
                 if norm_final not in normalized_cache:
                     normalized_cache[norm_final] = []
                 normalized_cache[norm_final].append(final_filename)
+        
+        # 注册到进度管理器
+        pm = get_manager()
+        if pm:
+            pm.add_file(full_path, directory)
 
     return plan
 
@@ -312,8 +328,12 @@ def _worker_rename(entry, directory, artist_name, track_ids: bool = True):
     target_path = os.path.join(directory, target_name)
     needs_rename = entry.get('needs_rename', True)
     
+    pm = get_manager()
+    if pm: pm.update_status(original_path, FileStatus.PROCESSING)
+    
     try:
         if not os.path.exists(original_path):
+            if pm: pm.update_status(original_path, FileStatus.FAILED)
             return False, 'missing'
         
         # 如果需要改名
@@ -326,14 +346,17 @@ def _worker_rename(entry, directory, artist_name, track_ids: bool = True):
                     artist_name if artist_name not in exclude_keywords else None
                 )
                 if success:
+                    if pm: pm.update_status(original_path, FileStatus.DONE)
                     return True, 'renamed_with_id'
                 else:
                     os.rename(original_path, target_path)
                     os.utime(target_path, (original_stat.st_atime, original_stat.st_mtime))
+                    if pm: pm.update_status(original_path, FileStatus.DONE)
                     return True, 'fallback'
             else:
                 os.rename(original_path, target_path)
                 os.utime(target_path, (original_stat.st_atime, original_stat.st_mtime))
+                if pm: pm.update_status(original_path, FileStatus.DONE)
                 return True, 'renamed'
         else:
             # 不需要改名，但可能需要补 ID
@@ -348,10 +371,13 @@ def _worker_rename(entry, directory, artist_name, track_ids: bool = True):
                                   'reason': 'parallel_id_fill'}
                     )
                     if created_id:
+                        if pm: pm.update_status(original_path, FileStatus.DONE)
                         return True, 'id_filled'
+            if pm: pm.update_status(original_path, FileStatus.DONE)
             return True, 'no_change'
 
     except Exception as e:
+        if pm: pm.update_status(original_path, FileStatus.FAILED)
         if isinstance(e, OSError) and (e.winerror == 183 or "文件已存在" in str(e)):
             with _conflict_lock:
                 _conflict_records.append({'source': original_path, 'target': target_path, 'error': str(e)})
@@ -439,6 +465,10 @@ def process_artist_folder(artist_path, artist_name, add_artist_name_enabled=True
                             logger.error(f"重命名文件夹出错 {old_path}: {str(e)}")
                 
             # 处理当前目录下的所有压缩文件
+            pm = get_manager()
+            if pm:
+                pm.add_directory(root, os.path.dirname(root) if root != artist_path else None)
+
             modified_files_count = process_files_in_directory(root, artist_name, add_artist_name_enabled, convert_sensitive_enabled, threads=threads, track_ids=track_ids)
             total_modified_files_count += modified_files_count
     except Exception as e:
@@ -473,25 +503,33 @@ def process_folders(base_path, add_artist_name_enabled=True, convert_sensitive_e
     total_sensitive = 0
 
     # 逐个处理画师文件夹 (增加全局进度条)
-    with tqdm(total=len(artist_folders), desc="总体进度", unit="folder", position=0, leave=True, ncols=0) as gbar:
-        for folder in artist_folders:
-            try:
-                artist_path = os.path.join(base_path, folder)
-                artist_name = get_artist_name(base_path, artist_path)
-                
-                # 处理画师文件夹中的文件，并获取修改文件数量
-                modified_files_count = process_artist_folder(artist_path, artist_name, add_artist_name_enabled, convert_sensitive_enabled, threads=threads, track_ids=track_ids)
-                total_processed += 1
-                total_modified += modified_files_count
-                
-                # 统计该文件夹中的压缩文件总数
-                for root, _, files in os.walk(artist_path):
-                    total_files += len([f for f in files if f.lower().endswith(ARCHIVE_EXTENSIONS)])
-                
-            except Exception as e:
-                logger.error(f"处理文件夹 {folder} 出错: {e}")
-            finally:
-                gbar.update(1)
+    pm = init_progress()
+    pm.start()
+    try:
+        with tqdm(total=len(artist_folders), desc="总体进度", unit="folder", position=0, leave=True, ncols=0, disable=True) as gbar:
+            for folder in artist_folders:
+                try:
+                    artist_path = os.path.join(base_path, folder)
+                    artist_name = get_artist_name(base_path, artist_path)
+                    
+                    # 注册画师目录
+                    pm.add_directory(artist_path)
+
+                    # 处理画师文件夹中的文件，并获取修改文件数量
+                    modified_files_count = process_artist_folder(artist_path, artist_name, add_artist_name_enabled, convert_sensitive_enabled, threads=threads, track_ids=track_ids)
+                    total_processed += 1
+                    total_modified += modified_files_count
+                    
+                    # 统计该文件夹中的压缩文件总数
+                    for root, _, files in os.walk(artist_path):
+                        total_files += len([f for f in files if f.lower().endswith(ARCHIVE_EXTENSIONS)])
+                    
+                except Exception as e:
+                    logger.error(f"处理文件夹 {folder} 出错: {e}")
+                finally:
+                    gbar.update(1)
+    finally:
+        pm.stop()
     
     # 输出冲突记录到 conflict.txt
     if _conflict_records:
