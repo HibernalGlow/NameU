@@ -66,13 +66,15 @@ def normalize_filename(filename):
     normalized = ''.join(base.split()).lower()
     return normalized
 
-def get_unique_filename_with_samename(directory: str, filename: str, original_path: str = None) -> str:
+def get_unique_filename_with_samename(directory: str, filename: str, original_path: str = None, existing_names: set = None, normalized_cache: dict = None) -> str:
     """
     检查文件名是否存在，如果存在则添加[samename_n]后缀
     Args:
         directory: 文件所在目录
         filename: 完整文件名（包含扩展名）
         original_path: 原始文件的完整路径，用于排除自身
+        existing_names: 可选，目录下所有文件名的集合（用于加速）
+        normalized_cache: 可选，标准化文件名到实际文件名的映射（用于加速）
     Returns:
         str: 唯一的文件名
     """
@@ -80,33 +82,68 @@ def get_unique_filename_with_samename(directory: str, filename: str, original_pa
     # 对文件名进行pangu格式化
     base = pangu.spacing_text(base)
     new_filename = f"{base}{ext}"
-    new_path = os.path.join(directory, new_filename)
     
-    # 如果文件不存在，直接返回
-    if not os.path.exists(new_path):
-        logger.debug(f"文件不存在，使用原始文件名: {new_filename}")
-        return new_filename
-    
-    # 如果是同一个文件，直接返回
-    if original_path and os.path.samefile(new_path, original_path):
-        logger.debug(f"文件是自身，保留原始文件名: {new_filename}")
-        return new_filename
-    
+    # 获取目录下文件名信息
+    if existing_names is None:
+        # 兼容模式：如果没有传入缓存，则现场查询磁盘
+        new_path = os.path.join(directory, new_filename)
+        # 如果文件不存在，直接返回
+        if not os.path.exists(new_path):
+            logger.debug(f"文件不存在，使用原始文件名: {new_filename}")
+            return new_filename
+        
+        # 如果是同一个文件，直接返回
+        if original_path and os.path.exists(new_path) and os.path.samefile(new_path, original_path):
+            logger.debug(f"文件是自身，保留原始文件名: {new_filename}")
+            return new_filename
+        
+        # 获取目录下所有文件并检查是否真的重名
+        existing_files = [f for f in os.listdir(directory) if os.path.isfile(os.path.join(directory, f))]
+    else:
+        # 加速模式：使用传入的文件名集合
+        if new_filename not in existing_names:
+            logger.debug(f"缓存检查：文件名不存在，使用: {new_filename}")
+            return new_filename
+            
+        # 检查是否是自身 (Win: 路径比较)
+        if original_path:
+            orig_name = os.path.basename(original_path)
+            if orig_name == new_filename:
+                logger.debug(f"缓存检查：文件是自身，保留: {new_filename}")
+                return new_filename
+        
+        existing_files = existing_names
+
     # 标准化当前文件名用于比较
     normalized_current = normalize_filename(new_filename)
     
-    # 获取目录下所有文件并检查是否真的重名
-    existing_files = [f for f in os.listdir(directory) if os.path.isfile(os.path.join(directory, f))]
     is_duplicate = False
     
-    for existing_file in existing_files:
-        if existing_file == new_filename:
-            continue  # 跳过自身
-        
-        normalized_existing = normalize_filename(existing_file)
-        if normalized_existing == normalized_current:
-            is_duplicate = True
-            break
+    # 检查标准化名称冲突
+    if normalized_cache is not None:
+        # 加速模式：从字典查询
+        if normalized_current in normalized_cache:
+            # 确认冲突名不是自身
+            conflict_names = normalized_cache[normalized_current]
+            if isinstance(conflict_names, list):
+                for c_name in conflict_names:
+                    if original_path and c_name == os.path.basename(original_path):
+                        continue
+                    is_duplicate = True
+                    break
+            else:
+                if not (original_path and conflict_names == os.path.basename(original_path)):
+                    is_duplicate = True
+    else:
+        # 兼容模式：遍历所有文件
+        for existing_file in existing_files:
+            if original_path and existing_file == os.path.basename(original_path):
+                continue
+            
+            normalized_existing = normalize_filename(existing_file)
+            if normalized_existing == normalized_current:
+                is_duplicate = True
+                break
     
     # 如果不是真正的重名，直接返回原文件名
     if not is_duplicate:
@@ -116,10 +153,16 @@ def get_unique_filename_with_samename(directory: str, filename: str, original_pa
     counter = 1
     while True:
         current_filename = f"{base}[samename_{counter}]{ext}"
-        current_path = os.path.join(directory, current_filename)
-        if not os.path.exists(current_path):
-            logger.debug(f"检测到文件名重复，生成新文件名: {current_filename}")
-            return current_filename
+        # 检查编号后的名字在磁盘/缓存中是否存在
+        if existing_names is not None:
+            if current_filename not in existing_names:
+                logger.debug(f"检测到文件名重复，生成新文件名: {current_filename}")
+                return current_filename
+        else:
+            current_path = os.path.join(directory, current_filename)
+            if not os.path.exists(current_path):
+                logger.debug(f"检测到文件名重复，生成新文件名: {current_filename}")
+                return current_filename
         counter += 1
 
 def remove_duplicate_brackets(text):
@@ -297,7 +340,7 @@ def truncate_filename_smart(filename, max_length):
     
     return result.strip()
 
-def get_unique_filename(directory, filename, artist_name, is_excluded=False):
+def get_unique_filename(directory, filename, artist_name, is_excluded=False, existing_names=None, normalized_cache=None):
     """生成唯一文件名"""
     base, ext = os.path.splitext(filename)
     
@@ -320,7 +363,7 @@ def get_unique_filename(directory, filename, artist_name, is_excluded=False):
     # 如果是排除的文件夹，直接返回处理后的文件名
     if is_excluded:
         filename = f"{base}{ext}"
-        return get_unique_filename_with_samename(directory, filename)
+        return get_unique_filename_with_samename(directory, filename, existing_names=existing_names, normalized_cache=normalized_cache)
 
     # 修改正则替换模式，更谨慎地处理日文字符
     basic_patterns = [
@@ -556,7 +599,7 @@ def get_unique_filename(directory, filename, artist_name, is_excluded=False):
     
     # 检查文件是否存在，如果存在则添加[samename_n]后缀
     filename = f"{new_base}{ext}"
-    return get_unique_filename_with_samename(directory, filename)
+    return get_unique_filename_with_samename(directory, filename, existing_names=existing_names, normalized_cache=normalized_cache)
 
 def check_sensitive_word(filename):
     """
@@ -619,7 +662,7 @@ def convert_sensitive_words_to_pinyin(filename, style='default'):
     return f"{converted_base}{ext}"
 
 
-def get_unique_filename_with_pinyin_conversion(directory, filename, style='default'):
+def get_unique_filename_with_pinyin_conversion(directory, filename, style='default', existing_names=None, normalized_cache=None):
     """
     将文件名中的敏感词转换为拼音并确保文件名唯一
     
@@ -627,6 +670,8 @@ def get_unique_filename_with_pinyin_conversion(directory, filename, style='defau
         directory: 文件所在目录
         filename: 原始文件名
         style: 拼音风格
+        existing_names: 缓存的文件名集合
+        normalized_cache: 缓存的标准化文件名映射
         
     Returns:
         str: 唯一的、已处理敏感词的文件名
@@ -635,4 +680,4 @@ def get_unique_filename_with_pinyin_conversion(directory, filename, style='defau
     converted_filename = convert_sensitive_words_to_pinyin(filename, style)
     
     # 确保文件名唯一
-    return get_unique_filename_with_samename(directory, converted_filename)
+    return get_unique_filename_with_samename(directory, converted_filename, existing_names=existing_names, normalized_cache=normalized_cache)

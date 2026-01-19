@@ -42,10 +42,15 @@ def process_files_in_directory(directory, artist_name, add_artist_name_enabled=T
     Returns:
         int: 修改的文件数量
     """
-    files = [f for f in os.listdir(directory) if os.path.isfile(os.path.join(directory, f)) and f.lower().endswith(ARCHIVE_EXTENSIONS)]
+    # 获取目录下所有压缩文件 (使用 os.scandir 代替 os.listdir)
+    files_info = []
+    with os.scandir(directory) as it:
+        for entry in it:
+            if entry.is_file() and entry.name.lower().endswith(ARCHIVE_EXTENSIONS):
+                files_info.append(entry.name)
 
     # 如果启用并行且文件数>1，走并行规划路径
-    if threads and threads > 1 and len(files) > 1:
+    if threads and threads > 1 and len(files_info) > 1:
         return process_files_in_directory_parallel(
             directory=directory,
             artist_name=artist_name,
@@ -79,6 +84,8 @@ def process_files_in_directory(directory, artist_name, add_artist_name_enabled=T
     else:
         _manager = None
 
+    # 统计信息
+    files = files_info
     for filename in files:
         original_file_path = os.path.join(directory, filename)
         filename = detect_and_decode_filename(filename)
@@ -96,7 +103,7 @@ def process_files_in_directory(directory, artist_name, add_artist_name_enabled=T
             logger.info(f"转换后的文件名: {new_filename}")
             
         # 只有在非排除文件夹、启用了画师名添加、不包含禁止关键词时才添加画师名
-        if not is_excluded and not has_forbidden and add_artist_name_enabled and artist_name not in exclude_keywords and not has_artist_name(new_filename, artist_name):
+        if not is_excluded and not has_forbidden_keyword(directory) and add_artist_name_enabled and artist_name not in exclude_keywords and not has_artist_name(new_filename, artist_name):
             # 将画师名追加到文件名末尾
             base, ext = os.path.splitext(new_filename)
             new_filename = f"{base}{artist_name}{ext}"
@@ -111,10 +118,10 @@ def process_files_in_directory(directory, artist_name, add_artist_name_enabled=T
             # 文件名无需修改，但仍需确保压缩包已写入ID注释并同步数据库
             if track_ids and ID_TRACKING_AVAILABLE and _ArchiveIDHandler and original_file_path.lower().endswith(ARCHIVE_EXTENSIONS):
                 try:
+                    # 串行补写逻辑保留以兼容单线程
                     comment = _ArchiveIDHandler.get_archive_comment(original_file_path)
                     existing_id = _ArchiveIDHandler.extract_id_from_comment(comment)
                     if not existing_id:
-                        # 仅创建ID，不更新名称
                         created_id = _ArchiveIDHandler.get_or_create_archive_id(
                             original_file_path,
                             metadata={
@@ -127,23 +134,17 @@ def process_files_in_directory(directory, artist_name, add_artist_name_enabled=T
                             auto_ids_created += 1
                             logger.info(f"为未改名文件补写ID: {os.path.basename(original_file_path)} -> {created_id}")
                             existing_id = created_id
-                        else:
-                            logger.warning(f"未能为未改名文件写入ID: {original_file_path}")
-                    # 同步数据库记录（无论是新ID还是已有ID，若DB缺失记录则创建）
+                    
                     if existing_id and _manager:
-                        try:
-                            info = _manager.get_archive_info(existing_id)
-                            if not info:
-                                if _manager.db.create_archive_record(
-                                    existing_id,
-                                    original_file_path,
-                                    os.path.basename(original_file_path),
-                                    artist_name if artist_name not in exclude_keywords else None
-                                ):
-                                    auto_db_records_created += 1
-                                    logger.debug(f"数据库补建记录: {existing_id}")
-                        except Exception as db_e:
-                            logger.error(f"补建数据库记录失败 {original_file_path}: {db_e}")
+                        info = _manager.get_archive_info(existing_id)
+                        if not info:
+                            _manager.db.create_archive_record(
+                                existing_id,
+                                original_file_path,
+                                os.path.basename(original_file_path),
+                                artist_name if artist_name not in exclude_keywords else None
+                            )
+                            auto_db_records_created += 1
                 except Exception as e:
                     logger.error(f"补写ID时出错 {original_file_path}: {e}")
 
@@ -239,86 +240,69 @@ _conflict_lock = Lock()  # 保护冲突记录列表
 
 def _build_plan(directory, artist_name, add_artist_name_enabled, convert_sensitive_enabled, track_ids: bool = True):
     """第一阶段：串行计算最终目标文件名 & 需要重命名的列表。
-    保证唯一性，以避免并发条件竞争。"""
-    plan = []  # 每项: {original, new_name, is_archive}
-    unchanged_for_id = []  # 未改名但需要补写ID
-
+    通过缓存 directory 内容避免 O(N^2) 重复扫描，并使用 os.scandir 加速。"""
+    plan = []  # 每项: {original_path, original_name, target_name, is_archive, needs_rename}
+    
     is_excluded = any(keyword in directory for keyword in exclude_keywords)
     has_forbidden = any(keyword in directory for keyword in forbidden_artist_keywords)
 
-    # 复用管理器仅用于补建数据库
-    if ID_TRACKING_AVAILABLE and track_ids:
-        try:
-            from nameset.manager import ArchiveIDManager as _ArchiveIDManager
-            _manager = _ArchiveIDManager()
-        except ImportError:
-            _manager = None
-    else:
-        _manager = None
+    # 1. 快速扫描目录并建立缓存
+    from .filename_processor import normalize_filename
+    existing_names = set()
+    normalized_cache = {}  # normalized -> [actual_names]
+    
+    entries = []
+    with os.scandir(directory) as it:
+        for entry in it:
+            if entry.is_file() and entry.name.lower().endswith(ARCHIVE_EXTENSIONS):
+                name = entry.name
+                existing_names.add(name)
+                norm = normalize_filename(name)
+                if norm not in normalized_cache:
+                    normalized_cache[norm] = []
+                normalized_cache[norm].append(name)
+                entries.append(entry)
 
-    auto_ids_created = 0
-    auto_db_records_created = 0
-
-    for filename in os.listdir(directory):
-        full_path = os.path.join(directory, filename)
-        if not (os.path.isfile(full_path) and filename.lower().endswith(ARCHIVE_EXTENSIONS)):
-            continue
+    # 2. 计算规划
+    for entry in entries:
+        filename = entry.name
+        full_path = entry.path
+        
         decoded = detect_and_decode_filename(filename)
-        new_filename = get_unique_filename(directory, decoded, artist_name, is_excluded)
+        # 传入缓存加速计算
+        new_filename = get_unique_filename(directory, decoded, artist_name, is_excluded, 
+                                          existing_names=existing_names, normalized_cache=normalized_cache)
+        
         if convert_sensitive_enabled and check_sensitive_word(new_filename):
-            sensitive_words = get_sensitive_words_in_filename(new_filename)
-            logger.info(f"文件名含敏感词转换拼音: {decoded} -> {sensitive_words}")
             new_filename = convert_sensitive_words_to_pinyin(new_filename)
+            
         if (not is_excluded and not has_forbidden and add_artist_name_enabled and artist_name not in exclude_keywords
                 and not has_artist_name(new_filename, artist_name)):
             base, ext = os.path.splitext(new_filename)
             new_filename = f"{base}{artist_name}{ext}"
-        final_filename = get_unique_filename_with_samename(directory, new_filename, full_path)
+            
+        # 传入缓存加速计算
+        final_filename = get_unique_filename_with_samename(directory, new_filename, full_path,
+                                                          existing_names=existing_names, normalized_cache=normalized_cache)
+        
         rename_needed = final_filename != decoded
-        if rename_needed:
+        
+        # 无论是否改名，都加入 plan (ID 补写将在并行 worker 中处理)
+        if rename_needed or (track_ids and ID_TRACKING_AVAILABLE):
             plan.append({
                 'original_path': full_path,
                 'original_name': decoded,
                 'target_name': final_filename,
-                'is_archive': True  # 过滤时已限定
+                'is_archive': True,
+                'needs_rename': rename_needed
             })
-        else:
-            # 不改名但要补ID
-            if track_ids and ID_TRACKING_AVAILABLE and _ArchiveIDHandler:
-                try:
-                    comment = _ArchiveIDHandler.get_archive_comment(full_path)
-                    existing_id = _ArchiveIDHandler.extract_id_from_comment(comment)
-                    if not existing_id:
-                        created_id = _ArchiveIDHandler.get_or_create_archive_id(
-                            full_path,
-                            metadata={'artist_name': artist_name if artist_name not in exclude_keywords else None,
-                                      'auto_add': True,
-                                      'reason': 'ensure_id_without_rename'}
-                        )
-                        if created_id:
-                            auto_ids_created += 1
-                            existing_id = created_id
-                    if existing_id and _manager:
-                        info = _manager.get_archive_info(existing_id)
-                        if not info:
-                            if _manager.db.create_archive_record(
-                                existing_id, full_path, os.path.basename(full_path),
-                                artist_name if artist_name not in exclude_keywords else None
-                            ):
-                                auto_db_records_created += 1
-                except Exception as e:
-                    logger.error(f"补写ID失败 {full_path}: {e}")
-            unchanged_for_id.append(full_path)
-
-    if (auto_ids_created + auto_db_records_created) > 0:
-        logger.info(
-            f"[并行准备] 未改名补写 -> 新建ID: {auto_ids_created} 个, 补建记录: {auto_db_records_created} 个 (目录: {directory})")
-
-    if track_ids and ID_TRACKING_AVAILABLE and '_manager' in locals() and _manager:
-        try:
-            _manager.close()
-        except Exception:
-            pass
+            # 如果是改名，更新缓存以防后续冲突
+            if rename_needed:
+                existing_names.add(final_filename)
+                norm_final = normalize_filename(final_filename)
+                if norm_final not in normalized_cache:
+                    normalized_cache[norm_final] = []
+                normalized_cache[norm_final].append(final_filename)
 
     return plan
 
@@ -326,42 +310,51 @@ def _worker_rename(entry, directory, artist_name, track_ids: bool = True):
     original_path = entry['original_path']
     target_name = entry['target_name']
     target_path = os.path.join(directory, target_name)
+    needs_rename = entry.get('needs_rename', True)
+    
     try:
-        # 再次确认文件仍存在
         if not os.path.exists(original_path):
             return False, 'missing'
-        original_stat = os.stat(original_path)
-        # 使用ID跟踪 (始终因是压缩包)
-        if ID_TRACKING_AVAILABLE and track_ids:
-            success = process_file_with_id_tracking(
-                original_path,
-                target_name,
-                artist_name if artist_name not in exclude_keywords else None
-            )
-            if success:
-                return True, None
+        
+        # 如果需要改名
+        if needs_rename:
+            original_stat = os.stat(original_path)
+            if ID_TRACKING_AVAILABLE and track_ids:
+                success = process_file_with_id_tracking(
+                    original_path,
+                    target_name,
+                    artist_name if artist_name not in exclude_keywords else None
+                )
+                if success:
+                    return True, 'renamed_with_id'
+                else:
+                    os.rename(original_path, target_path)
+                    os.utime(target_path, (original_stat.st_atime, original_stat.st_mtime))
+                    return True, 'fallback'
             else:
-                # 回退传统方式
                 os.rename(original_path, target_path)
                 os.utime(target_path, (original_stat.st_atime, original_stat.st_mtime))
-                return True, 'fallback'
+                return True, 'renamed'
         else:
-            os.rename(original_path, target_path)
-            os.utime(target_path, (original_stat.st_atime, original_stat.st_mtime))
-            return True, None
-    except OSError as e:
-        # 检查是否是文件已存在错误 (WinError 183)
-        if e.winerror == 183 or "文件已存在" in str(e):
-            # 记录冲突
-            with _conflict_lock:
-                _conflict_records.append({
-                    'source': original_path,
-                    'target': target_path,
-                    'error': str(e)
-                })
-            logger.error(f"❌ 文件重命名失败: {e}: '{original_path}' -> '{target_path}'")
-        return False, str(e)
+            # 不需要改名，但可能需要补 ID
+            if track_ids and ID_TRACKING_AVAILABLE and _ArchiveIDHandler:
+                comment = _ArchiveIDHandler.get_archive_comment(original_path)
+                existing_id = _ArchiveIDHandler.extract_id_from_comment(comment)
+                if not existing_id:
+                    created_id = _ArchiveIDHandler.get_or_create_archive_id(
+                        original_path,
+                        metadata={'artist_name': artist_name if artist_name not in exclude_keywords else None,
+                                  'auto_add': True,
+                                  'reason': 'parallel_id_fill'}
+                    )
+                    if created_id:
+                        return True, 'id_filled'
+            return True, 'no_change'
+
     except Exception as e:
+        if isinstance(e, OSError) and (e.winerror == 183 or "文件已存在" in str(e)):
+            with _conflict_lock:
+                _conflict_records.append({'source': original_path, 'target': target_path, 'error': str(e)})
         return False, str(e)
 
 def process_files_in_directory_parallel(directory, artist_name, add_artist_name_enabled=True, convert_sensitive_enabled=True, threads: int = 16, track_ids: bool = True):
