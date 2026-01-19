@@ -480,7 +480,9 @@ def get_unique_filename(directory, filename, artist_name, is_excluded=False, exi
         r'截止',
         r'去码',
         
-        r'^\d+[\d\.\-+\s pPvVmMbBgGnN]*[pPvVmMbBgGnN][\d\.\-+\s pPvVmMbBgGnN]*$',  # 纯数字加特定字母(PVMBGN)的前缀改为后缀
+        # 纯数字及其组合（带单位/数量）作为前缀时，改为后缀
+        # 匹配：(10P), (57.1M), (10P-126.5M), ( 10P ) 等
+        r'^\s*[\d\.\-+\s]*\d+[\d\.\-+\s]*[pPvVmMbBgGnN][\s\d\.\-+\s pPvVmMbBgGnN]*$',
         r'\d+[GMK]B',         # 文件大小信息（如123MB、45KB等）
     ]
 
