@@ -60,8 +60,10 @@ def normalize_filename(filename):
     """
     # 移除扩展名
     base = os.path.splitext(filename)[0]
-    # 移除[samename_n]标记
+    # 移除[samename_n]标记 (旧格式)
     base = re.sub(r'\[samename_\d+\]', '', base)
+    # 移除 (n) 后缀 (新格式，仅匹配文件名末尾的数字括号)
+    base = re.sub(r'\s\(\d+\)$', '', base)
     # 移除所有空格并转换为小写
     normalized = ''.join(base.split()).lower()
     return normalized
@@ -152,7 +154,8 @@ def get_unique_filename_with_samename(directory: str, filename: str, original_pa
     # 如果确实重名，添加编号
     counter = 1
     while True:
-        current_filename = f"{base}[samename_{counter}]{ext}"
+        # 使用系统自带样式的重名机制: "文件名 (1).ext"
+        current_filename = f"{base} ({counter}){ext}"
         # 检查编号后的名字在磁盘/缓存中是否存在
         if existing_names is not None:
             if current_filename not in existing_names:
@@ -418,6 +421,7 @@ def get_unique_filename(directory, filename, artist_name, is_excluded=False, exi
         # 清理samename标记，以便重新添加
         (r'\[multi\-main\]', r''),
         (r'\[samename_\d+\]', r''),
+        (r'\s\(\d+\)$', r''),
         # (r'\d{5,6}\.', r''),
     ]
     

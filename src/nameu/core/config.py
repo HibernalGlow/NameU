@@ -110,7 +110,8 @@ basic_patterns = {
         (r'\[multi\]', ''),
         (r'\[trash\]', ''),
         (r'\[multi\-main\]', ''),
-        (r'\[samename_\d+\]', '')
+        (r'\[samename_\d+\]', ''),
+        (r'\s\(\d+\)$', '')
     ],
     "image": [
         (r'(单行本)', ''),
