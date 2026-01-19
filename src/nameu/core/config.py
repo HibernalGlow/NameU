@@ -10,10 +10,11 @@ from loguru import logger
 exclude_keywords = ['[00待分类]', '[00去图]', '[01杂]']
 forbidden_artist_keywords = ['[圣枪嘉然]', '[00去图]', '[01杂]', '[bili]','[weibo]', '[02杂]']
 path_blacklist = []
+path_blacklist_keywords = ['[圣枪嘉然]', '[00去图]', '[01杂]', '[bili]','[weibo]', '[02杂]']  # 新增：路径关键词黑名单
 
 def load_config():
     """从主目录下的 nameu.toml 加载配置"""
-    global exclude_keywords, forbidden_artist_keywords, path_blacklist
+    global exclude_keywords, forbidden_artist_keywords, path_blacklist, path_blacklist_keywords
     
     config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "nameu.toml")
     if os.path.exists(config_path):
@@ -34,6 +35,11 @@ def load_config():
             if "path_blacklist" in config:
                 path_blacklist = config["path_blacklist"]
                 logger.info(f"从 TOML 加载路径黑名单: {path_blacklist}")
+
+            # 加载路径关键词黑名单
+            if "path_blacklist_keywords" in config:
+                path_blacklist_keywords = config["path_blacklist_keywords"]
+                logger.info(f"从 TOML 加载路径关键词黑名单: {path_blacklist_keywords}")
                 
         except Exception as e:
             logger.error(f"加载 TOML 配置失败: {e}")
@@ -43,15 +49,23 @@ load_config()
 
 def is_path_blacklisted(path: str) -> bool:
     """检查路径是否在黑名单中"""
-    if not path_blacklist:
-        return False
-    
     # 转换为绝对路径进行比较
     abs_path = os.path.abspath(path)
-    for blacklisted_path in path_blacklist:
-        abs_blacklisted = os.path.abspath(blacklisted_path)
-        if abs_path == abs_blacklisted or abs_path.startswith(os.path.join(abs_blacklisted, '')):
-            return True
+    
+    # 1. 检查精确路径/父目录匹配
+    if path_blacklist:
+        for blacklisted_path in path_blacklist:
+            abs_blacklisted = os.path.abspath(blacklisted_path)
+            if abs_path == abs_blacklisted or abs_path.startswith(os.path.join(abs_blacklisted, '')):
+                return True
+            
+    # 2. 检查路径关键词匹配
+    if path_blacklist_keywords:
+        path_lower = abs_path.lower()
+        for keyword in path_blacklist_keywords:
+            if keyword.lower() in path_lower:
+                return True
+                
     return False
 
 basic_patterns = {

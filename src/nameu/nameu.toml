@@ -12,3 +12,8 @@ path_blacklist = [
     # "C:/path/to/skip",
     # "relative/path/to/skip"
 ]
+
+# 路径关键词黑名单：路径中包含任意一个关键词的文件夹将被跳过（不区分大小写）
+path_blacklist_keywords = [
+    "[圣枪嘉然]", "[00去图]", "[01杂]", "[bili]","[weibo]", "[02杂]"
+]
