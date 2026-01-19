@@ -72,22 +72,17 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
-packages = [
-    "nameu",
-    "nameu.utils",
-    "coveru",
-    "dela",
-    "idset",
-    "idu",
-    "nameset",
-    "namet",
-    "pathr",
-    "sensi2pinyin",
-    "sensi2pinyin.lexicons",
-    "timeu",
-]
+packages = {find = {where = ["src"]}}
 
 [tool.setuptools.package-data]
+"nameu" = [
+    "Taskfile.yml",
+    "nameu.toml",
+]
+"nameu.core" = [
+    "lexicons/**/*.json",
+    "lexicons/**/*.txt",
+]
 "sensi2pinyin" = [
     "lexicons/**/*.json",
     "lexicons/**/*.txt",
