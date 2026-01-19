@@ -99,8 +99,8 @@ def get_unique_filename_with_samename(directory: str, filename: str, original_pa
             logger.debug(f"文件是自身，保留原始文件名: {new_filename}")
             return new_filename
         
-        # 获取目录下所有文件并检查是否真的重名
-        existing_files = [f for f in os.listdir(directory) if os.path.isfile(os.path.join(directory, f))]
+        # 获取目录下所有项并检查是否真的重名
+        existing_files = [f for f in os.listdir(directory)]
     else:
         # 加速模式：使用传入的文件名集合
         if new_filename not in existing_names:

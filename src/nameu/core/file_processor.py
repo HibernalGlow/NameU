@@ -94,6 +94,22 @@ def process_files_in_directory(directory, artist_name, add_artist_name_enabled=T
     # 统计信息
     files = files_info
     pm = get_manager()
+
+    # 1. 快速扫描目录并建立缓存，用于处理批量重命名中的内部冲突
+    from .filename_processor import normalize_filename
+    existing_names = set()
+    normalized_cache = {}  # normalized -> [actual_names]
+    
+    with os.scandir(directory) as it:
+        for entry in it:
+            if entry.is_file() and entry.name.lower().endswith(ARCHIVE_EXTENSIONS):
+                name = entry.name
+                existing_names.add(name)
+                norm = normalize_filename(name)
+                if norm not in normalized_cache:
+                    normalized_cache[norm] = []
+                normalized_cache[norm].append(name)
+
     for filename in files:
         original_file_path = os.path.join(directory, filename)
         if pm: pm.add_file(original_file_path, directory)
@@ -119,7 +135,20 @@ def process_files_in_directory(directory, artist_name, add_artist_name_enabled=T
             new_filename = f"{base}{artist_name}{ext}"
         
         # 确保文件名唯一（始终传入原始路径以排除自身）
-        final_filename = get_unique_filename_with_samename(directory, new_filename, original_file_path)
+        final_filename = get_unique_filename_with_samename(
+            directory, new_filename, original_file_path, 
+            existing_names=existing_names, normalized_cache=normalized_cache
+        )
+        
+        # 为了处理批量重命名中的冲突，如果文件名发生了变化，我们需要将其加入“已预定”的名称集合中
+        # 这样同一个目录下后续处理的文件就不会再抢占这个名字
+        actual_original_name = os.path.basename(original_file_path)
+        if final_filename != actual_original_name:
+            existing_names.add(final_filename)
+            norm_final = normalize_filename(final_filename)
+            if norm_final not in normalized_cache:
+                normalized_cache[norm_final] = []
+            normalized_cache[norm_final].append(final_filename)
         
         rename_needed = final_filename != filename
         if rename_needed:
@@ -448,8 +477,8 @@ def process_artist_folder(artist_path, artist_name, add_artist_name_enabled=True
                 # 获取完整路径
                 old_path = os.path.join(root, dir_name)
                 
-                # 如果不是一级目录，则应用格式化
-                if root != artist_path:
+                # 应用格式化
+                if True: # 允许对所有级别的子文件夹应用格式化
                     new_name = format_folder_name(dir_name)
                     
                     # 检测目录名是否包含敏感词并转换
@@ -461,6 +490,12 @@ def process_artist_folder(artist_path, artist_name, add_artist_name_enabled=True
                         logger.info(f"转换后的目录名: {new_name}")
                     
                     if new_name != dir_name:
+                        # 确保目录名唯一
+                        # 这里的 get_unique_filename_with_samename 虽然是为文件设计的，
+                        # 但其逻辑同样适用于文件夹名称的防冲突
+                        from .filename_processor import get_unique_filename_with_samename
+                        new_name = get_unique_filename_with_samename(root, new_name, old_path)
+                        
                         new_path = os.path.join(root, new_name)
                         try:
                             # 保存原始时间戳
