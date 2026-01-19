@@ -7,10 +7,9 @@ requires-python = ">=3.11"
 authors = [
     {name = "HibernalGlow", email = "your.email@example.com"}
 ]
-license = {text = "MIT"}
+license = "MIT"
 classifiers = [
     "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
 dependencies = [
@@ -86,8 +85,6 @@ packages = [
     "sensi2pinyin",
     "sensi2pinyin.lexicons",
     "timeu",
-    "timex",
-    "trename",
 ]
 
 [tool.setuptools.package-data]
