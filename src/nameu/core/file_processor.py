@@ -472,23 +472,26 @@ def process_folders(base_path, add_artist_name_enabled=True, convert_sensitive_e
     total_files = 0
     total_sensitive = 0
 
-    # 逐个处理画师文件夹
-    for folder in artist_folders:
-        try:
-            artist_path = os.path.join(base_path, folder)
-            artist_name = get_artist_name(base_path, artist_path)
-            
-            # 处理画师文件夹中的文件，并获取修改文件数量
-            modified_files_count = process_artist_folder(artist_path, artist_name, add_artist_name_enabled, convert_sensitive_enabled, threads=threads, track_ids=track_ids)
-            total_processed += 1
-            total_modified += modified_files_count
-            
-            # 统计该文件夹中的压缩文件总数
-            for root, _, files in os.walk(artist_path):
-                total_files += len([f for f in files if f.lower().endswith(ARCHIVE_EXTENSIONS)])
-            
-        except Exception as e:
-            logger.error(f"处理文件夹 {folder} 出错: {e}")
+    # 逐个处理画师文件夹 (增加全局进度条)
+    with tqdm(total=len(artist_folders), desc="总体进度", unit="folder", position=0, leave=True, ncols=0) as gbar:
+        for folder in artist_folders:
+            try:
+                artist_path = os.path.join(base_path, folder)
+                artist_name = get_artist_name(base_path, artist_path)
+                
+                # 处理画师文件夹中的文件，并获取修改文件数量
+                modified_files_count = process_artist_folder(artist_path, artist_name, add_artist_name_enabled, convert_sensitive_enabled, threads=threads, track_ids=track_ids)
+                total_processed += 1
+                total_modified += modified_files_count
+                
+                # 统计该文件夹中的压缩文件总数
+                for root, _, files in os.walk(artist_path):
+                    total_files += len([f for f in files if f.lower().endswith(ARCHIVE_EXTENSIONS)])
+                
+            except Exception as e:
+                logger.error(f"处理文件夹 {folder} 出错: {e}")
+            finally:
+                gbar.update(1)
     
     # 输出冲突记录到 conflict.txt
     if _conflict_records:
