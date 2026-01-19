@@ -2,6 +2,58 @@
 
 # 纯 Python 结构的正则分组和类型映射
 
+import os
+import toml
+from loguru import logger
+
+# 默认配置
+exclude_keywords = ['[00待分类]', '[00去图]', '[01杂]']
+forbidden_artist_keywords = ['[圣枪嘉然]', '[00去图]', '[01杂]', '[bili]','[weibo]', '[02杂]']
+path_blacklist = []
+
+def load_config():
+    """从主目录下的 nameu.toml 加载配置"""
+    global exclude_keywords, forbidden_artist_keywords, path_blacklist
+    
+    config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "nameu.toml")
+    if os.path.exists(config_path):
+        try:
+            config = toml.load(config_path)
+            
+            # 加载排除关键词
+            if "exclude_keywords" in config:
+                exclude_keywords = config["exclude_keywords"]
+                logger.info(f"从 TOML 加载排除关键词: {exclude_keywords}")
+                
+            # 加载禁止画师关键词
+            if "forbidden_artist_keywords" in config:
+                forbidden_artist_keywords = config["forbidden_artist_keywords"]
+                logger.info(f"从 TOML 加载禁止画师关键词: {forbidden_artist_keywords}")
+                
+            # 加载路径黑名单
+            if "path_blacklist" in config:
+                path_blacklist = config["path_blacklist"]
+                logger.info(f"从 TOML 加载路径黑名单: {path_blacklist}")
+                
+        except Exception as e:
+            logger.error(f"加载 TOML 配置失败: {e}")
+
+# 执行初始化加载
+load_config()
+
+def is_path_blacklisted(path: str) -> bool:
+    """检查路径是否在黑名单中"""
+    if not path_blacklist:
+        return False
+    
+    # 转换为绝对路径进行比较
+    abs_path = os.path.abspath(path)
+    for blacklisted_path in path_blacklist:
+        abs_blacklisted = os.path.abspath(blacklisted_path)
+        if abs_path == abs_blacklisted or abs_path.startswith(os.path.join(abs_blacklisted, '')):
+            return True
+    return False
+
 basic_patterns = {
     "all": [
         (r'\s{0,6}／\s{0,6}', ' '),

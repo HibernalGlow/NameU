@@ -5,7 +5,8 @@
 import os
 from loguru import logger
 from tqdm import tqdm
-from .constants import ARCHIVE_EXTENSIONS, exclude_keywords, forbidden_artist_keywords
+from .constants import ARCHIVE_EXTENSIONS
+from .config import exclude_keywords, forbidden_artist_keywords, path_blacklist, is_path_blacklisted
 from .filename_processor import (
     detect_and_decode_filename, get_unique_filename, get_unique_filename_with_samename,
     format_folder_name, has_artist_name, has_forbidden_keyword, convert_sensitive_words_to_pinyin,
@@ -43,6 +44,11 @@ def process_files_in_directory(directory, artist_name, add_artist_name_enabled=T
     Returns:
         int: 修改的文件数量
     """
+    # 检查路径黑名单
+    if is_path_blacklisted(directory):
+        logger.warning(f"🚫 路径在黑名单中，跳过处理: {directory}")
+        return 0
+
     # 获取目录下所有压缩文件 (使用 os.scandir 代替 os.listdir)
     files_info = []
     with os.scandir(directory) as it:
@@ -417,6 +423,11 @@ def process_artist_folder(artist_path, artist_name, add_artist_name_enabled=True
         convert_sensitive_enabled: 是否将敏感词转换为拼音
     """
     total_modified_files_count = 0
+
+    # 检查路径黑名单
+    if is_path_blacklisted(artist_path):
+        logger.warning(f"🚫 画师路径在黑名单中，跳过处理: {artist_path}")
+        return 0
 
     try:
         # 检查当前文件夹是否在排除列表中

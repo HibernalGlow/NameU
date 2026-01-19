@@ -7,7 +7,7 @@ import re
 from loguru import logger
 import pangu
 from charset_normalizer import from_bytes
-from .constants import forbidden_artist_keywords
+from .config import forbidden_artist_keywords
 from .sensitive_word_processor import sensitive_processor
 NAME_LEN = 80
 #         
