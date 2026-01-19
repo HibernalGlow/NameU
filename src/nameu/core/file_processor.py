@@ -8,7 +8,7 @@ from tqdm import tqdm
 from .constants import ARCHIVE_EXTENSIONS, exclude_keywords, forbidden_artist_keywords
 from .filename_processor import (
     detect_and_decode_filename, get_unique_filename, get_unique_filename_with_samename,
-    format_folder_name, has_artist_name, convert_sensitive_words_to_pinyin,
+    format_folder_name, has_artist_name, has_forbidden_keyword, convert_sensitive_words_to_pinyin,
     check_sensitive_word, get_sensitive_words_in_filename, get_unique_filename_with_pinyin_conversion
 )
 from .progress import init_progress, get_manager, FileStatus
