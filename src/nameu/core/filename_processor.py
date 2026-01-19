@@ -457,6 +457,7 @@ def get_unique_filename(directory, filename, artist_name, is_excluded=False, exi
         r'([^()]*)Comic[^()]*',
         r'([^()]*)VOL[^()]*',
         r'([^()]*)永遠娘[^()]*',
+        r'・',                # 包含中点的名称通常是系列名/作品名
         r'(.*?\d+.*?)',
     ]
 
@@ -479,6 +480,7 @@ def get_unique_filename(directory, filename, artist_name, is_excluded=False, exi
         r'截止',
         r'去码',
         
+        r'^\d+[\d\.\-+\s pPvVmMbBgGnN]*[pPvVmMbBgGnN][\d\.\-+\s pPvVmMbBgGnN]*$',  # 纯数字加特定字母(PVMBGN)的前缀改为后缀
         r'\d+[GMK]B',         # 文件大小信息（如123MB、45KB等）
     ]
 

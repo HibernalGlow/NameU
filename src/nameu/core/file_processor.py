@@ -503,10 +503,11 @@ def process_folders(base_path, add_artist_name_enabled=True, convert_sensitive_e
     total_sensitive = 0
 
     # 逐个处理画师文件夹 (增加全局进度条)
-    USE_TREE_UI = False  # 暂时关闭文件树显示
+    USE_TREE_UI = False  # 关闭文件树显示，使用简单进度条
     pm = init_progress(enable=USE_TREE_UI)
     pm.start()
     try:
+        # 当 USE_TREE_UI 为 False 时，tqdm 会显示标准进度条
         with tqdm(total=len(artist_folders), desc="总体进度", unit="folder", position=0, leave=True, ncols=0, disable=USE_TREE_UI) as gbar:
             for folder in artist_folders:
                 try:
