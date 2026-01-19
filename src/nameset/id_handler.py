@@ -47,10 +47,10 @@ class ArchiveIDHandler:
         try:
             # 方法1: 使用 bz.exe 读取（如果是ZIP文件）
             if archive_path.lower().endswith('.zip'):
-                # 尝试多个可能的 bz.exe 路径
+                # 尝试多个可能的 bz.exe 路径 (优先使用用户提供的路径)
                 bz_paths = [
-                    r"bz.exe",  # 环境变量中的
                     r"D:\1Repo\Soft\bz\Bandizip\bz.exe",  # 用户指定路径
+                    r"bz.exe",  # 环境变量中的
                     r"C:\Program Files\Bandizip\bz.exe",
                     r"C:\Program Files (x86)\Bandizip\bz.exe"
                 ]
@@ -62,6 +62,7 @@ class ArchiveIDHandler:
                         break
                 
                 if bz_exe:
+                    logger.debug(f"🔍 找到 Bandizip: {bz_exe}")
                     try:
                         result = subprocess.run(
                             [bz_exe, 'l', '-list:v', archive_path],
@@ -159,8 +160,8 @@ class ArchiveIDHandler:
             
             # 使用临时文件方式，强制UTF-8编码
             bandizip_commands = [
-                r"bz.exe",
                 r"D:\1Repo\Soft\bz\Bandizip\bz.exe",
+                r"bz.exe",
                 r"C:\Program Files\Bandizip\bz.exe",
                 r"C:\Program Files (x86)\Bandizip\bz.exe"
             ]
@@ -181,7 +182,7 @@ class ArchiveIDHandler:
                         )
                         
                         if result.returncode == 0:
-                            logger.debug(f"使用{cmd}文件方式设置压缩包注释成功: {archive_path}")
+                            logger.debug(f"🔍 使用 {cmd} 成功设置压缩包注释: {archive_path}")
                             return True
                         else:
                             logger.debug(f"{cmd}文件方式设置注释失败: {result.stderr}")
