@@ -45,49 +45,63 @@ class ArchiveIDHandler:
             return ArchiveIDHandler._comment_cache[archive_path]
         
         try:
-            # 方法1: 使用bz.exe读取（如果是ZIP文件）
+            # 方法1: 使用 bz.exe 读取（如果是ZIP文件）
             if archive_path.lower().endswith('.zip'):
-                try:
-                    result = subprocess.run(
-                        [r"bz.exe", 'l', '-list:v', archive_path],
-                        capture_output=True,
-                        text=True,
-                        encoding='utf-8'
-                    )
-                    
-                    if result.returncode == 0:
-                        # 解析bz.exe的输出查找注释
-                        output = result.stdout
-                        comment_start_marker = 'Archive comment:'
+                # 尝试多个可能的 bz.exe 路径
+                bz_paths = [
+                    r"bz.exe",  # 环境变量中的
+                    r"D:\1Repo\Soft\bz\Bandizip\bz.exe",  # 用户指定路径
+                    r"C:\Program Files\Bandizip\bz.exe",
+                    r"C:\Program Files (x86)\Bandizip\bz.exe"
+                ]
+                
+                bz_exe = None
+                for path in bz_paths:
+                    if path == "bz.exe" or os.path.exists(path):
+                        bz_exe = path
+                        break
+                
+                if bz_exe:
+                    try:
+                        result = subprocess.run(
+                            [bz_exe, 'l', '-list:v', archive_path],
+                            capture_output=True,
+                            text=True,
+                            encoding='utf-8'
+                        )
                         
-                        # 找到注释开始位置
-                        comment_index = output.find(comment_start_marker)
-                        if comment_index != -1:
-                            # 获取注释内容，需要处理多行注释
-                            lines = output[comment_index:].splitlines()
-                            if len(lines) > 1:  # 确保有注释内容行
-                                # 跳过第一行（包含"Archive comment:"的行）
-                                comment_lines = []
-                                for line in lines[1:]:
-                                    # 如果遇到新的段落标记，停止读取注释
-                                    if line.strip() and (line.startswith('Archive:') or line.startswith('Type:') or 
-                                                        line.startswith('Physical Size:') or line.startswith('Headers Size:')):
-                                        break
-                                    comment_lines.append(line)
-                                
-                                comment_part = '\n'.join(comment_lines).strip()
-                                if comment_part:
-                                    # 修复JSON格式：如果开头缺少大括号，补上
-                                    if comment_part.startswith('"id":') or comment_part.startswith('"'):
-                                        comment_part = '{' + comment_part
-                                    logger.debug(f"使用bz.exe读取注释成功: {archive_path}")
-                                    ArchiveIDHandler._comment_cache[archive_path] = comment_part
-                                    return comment_part
-                        ArchiveIDHandler._comment_cache[archive_path] = None
-                        return None
-                except Exception as e:
-                    logger.debug(f"使用bz.exe读取注释失败: {e}")
-                    ArchiveIDHandler._comment_cache[archive_path] = None
+                        if result.returncode == 0:
+                            # 解析bz.exe的输出查找注释
+                            output = result.stdout
+                            comment_start_marker = 'Archive comment:'
+                            
+                            # 找到注释开始位置
+                            comment_index = output.find(comment_start_marker)
+                            if comment_index != -1:
+                                # 获取注释内容，需要处理多行注释
+                                lines = output[comment_index:].splitlines()
+                                if len(lines) > 1:  # 确保有注释内容行
+                                    # 跳过第一行（包含"Archive comment:"的行）
+                                    comment_lines = []
+                                    for line in lines[1:]:
+                                        # 如果遇到新的段落标记，停止读取注释
+                                        if line.strip() and (line.startswith('Archive:') or line.startswith('Type:') or 
+                                                            line.startswith('Physical Size:') or line.startswith('Headers Size:')):
+                                            break
+                                        comment_lines.append(line)
+                                    
+                                    comment_part = '\n'.join(comment_lines).strip()
+                                    if comment_part:
+                                        # 修复JSON格式：如果开头缺少大括号，补上
+                                        if comment_part.startswith('"id":') or comment_part.startswith('"'):
+                                            comment_part = '{' + comment_part
+                                        logger.debug(f"使用bz.exe读取注释成功: {archive_path}")
+                                        ArchiveIDHandler._comment_cache[archive_path] = comment_part
+                                        return comment_part
+                    except Exception as e:
+                        logger.debug(f"使用bz.exe读取注释失败: {e}")
+                else:
+                    logger.debug(f"未找到可用 bz.exe，跳过读取: {archive_path}")
             
             # 方法2: 回退到7z（用于其他格式的压缩包）
             result = subprocess.run(
@@ -144,7 +158,12 @@ class ArchiveIDHandler:
                 return False
             
             # 使用临时文件方式，强制UTF-8编码
-            bandizip_commands = [r"bz.exe"]
+            bandizip_commands = [
+                r"bz.exe",
+                r"D:\1Repo\Soft\bz\Bandizip\bz.exe",
+                r"C:\Program Files\Bandizip\bz.exe",
+                r"C:\Program Files (x86)\Bandizip\bz.exe"
+            ]
             
             for cmd in bandizip_commands:
                 try:
