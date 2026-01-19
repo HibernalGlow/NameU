@@ -37,14 +37,34 @@ class ProgressManager:
             console=self.console
         )
         self.overall_task = None
+        self.log_handler_id = None
 
     def start(self):
         """启动 Live 显示"""
+        # 拦截 loguru 日志并重定向到 rich console
+        from loguru import logger
+        try:
+            # 尝试移除原有的控制台处理器（如果存在）
+            # 注意：这可能会影响其他部分的日志，但 Live 模式下通常需要接管输出
+            self.log_handler_id = logger.add(
+                lambda msg: self.console.print(msg, end=""),
+                format="{message}",
+                level="INFO",
+                colorize=True
+            )
+        except Exception:
+            pass
+
         self.live = Live(self._build_display_group(), console=self.console, refresh_per_second=4, transient=False)
         self.live.start()
 
     def stop(self):
         """停止 Live 显示"""
+        from loguru import logger
+        if self.log_handler_id is not None:
+            logger.remove(self.log_handler_id)
+            self.log_handler_id = None
+
         if self.live:
             # 最终刷新一次
             self.live.update(self._build_display_group())
