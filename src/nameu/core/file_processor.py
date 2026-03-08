@@ -161,7 +161,14 @@ def process_files_in_directory(directory, artist_name, add_artist_name_enabled=T
         
         rename_needed = final_filename != filename
         if rename_needed:
-            files_to_modify.append((filename, final_filename, original_file_path))
+            files_to_modify.append(
+                (
+                    filename,
+                    final_filename,
+                    original_file_path,
+                    _is_duplicate_resolution(filename, final_filename),
+                )
+            )
         else:
             # 文件名无需修改，但仍需确保压缩包已写入ID注释并同步数据库
             if track_ids and ID_TRACKING_AVAILABLE and _ArchiveIDHandler and original_file_path.lower().endswith(ARCHIVE_EXTENSIONS):
@@ -215,7 +222,7 @@ def process_files_in_directory(directory, artist_name, add_artist_name_enabled=T
     # 如果有文件需要修改，显示进度条并处理
     if files_to_modify:
         with tqdm(total=len(files_to_modify), desc=f"重命名文件", unit="file", ncols=0, leave=True) as pbar:
-            for filename, new_filename, original_file_path in files_to_modify:
+            for filename, new_filename, original_file_path, duplicate_resolution in files_to_modify:
                 # 获取原始文件的时间戳
                 original_stat = os.stat(original_file_path)
                 
@@ -261,6 +268,8 @@ def process_files_in_directory(directory, artist_name, add_artist_name_enabled=T
                         
                     log_message = f"重命名: {rel_old_path} -> {rel_new_path}"
                     logger.debug(log_message)
+                    if pm:
+                        pm.record_rename(rel_old_path, rel_new_path, duplicate_resolution)
                 except OSError as e:
                     # 检查是否是文件已存在错误 (WinError 183)
                     if e.winerror == 183 or "文件已存在" in str(e):
@@ -302,6 +311,16 @@ def _resolve_parallelism(total_threads: int, artist_count: int) -> tuple[int, in
     outer_workers = min(artist_count, max(2, min(total_threads, 4)))
     inner_threads = max(1, total_threads // outer_workers)
     return outer_workers, inner_threads
+
+
+def _is_duplicate_resolution(original_name: str, new_name: str) -> bool:
+    original_base, original_ext = os.path.splitext(original_name)
+    new_base, new_ext = os.path.splitext(new_name)
+    if original_ext.lower() != new_ext.lower():
+        return False
+    if original_base == new_base:
+        return False
+    return normalize_filename(original_name) == normalize_filename(new_name)
 
 def _build_plan(directory, artist_name, add_artist_name_enabled, convert_sensitive_enabled, track_ids: bool = True, entries=None, existing_names=None, normalized_cache=None):
     """第一阶段：串行计算最终目标文件名 & 需要重命名的列表。
@@ -569,7 +588,7 @@ def process_folders(base_path, add_artist_name_enabled=True, convert_sensitive_e
     outer_workers, inner_threads = _resolve_parallelism(threads, len(artist_folders))
 
     # 逐个处理画师文件夹 (增加全局进度条)
-    USE_TREE_UI = False  # 关闭文件树显示，使用简单进度条
+    USE_TREE_UI = True
     pm = init_progress(enable=USE_TREE_UI)
     pm.start()
     try:
