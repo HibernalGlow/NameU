@@ -10,7 +10,109 @@ from charset_normalizer import from_bytes
 from .config import forbidden_artist_keywords
 from .sensitive_word_processor import sensitive_processor
 NAME_LEN = 80
-#         
+
+_SAMENAME_PATTERN = re.compile(r'\[samename_\d+\]')
+_TRAILING_COUNTER_PATTERN = re.compile(r'\s\(\d+\)$')
+_BRACKET_CONTENT_PATTERN = re.compile(r'\[([^\[\]]+)\]')
+_PAREN_CONTENT_PATTERN = re.compile(r'\(([^\(\)]+)\)')
+_BASIC_REPLACEMENTS = [
+    (re.compile(r'（'), '('),
+    (re.compile(r'）'), ')'),
+    (re.compile(r'\uff08'), '('),
+    (re.compile(r'\uff09'), ')'),
+    (re.compile(r'【'), '['),
+    (re.compile(r'】'), ']'),
+    (re.compile(r'［'), '['),
+    (re.compile(r'］'), ']'),
+    (re.compile(r'\uff3b'), '['),
+    (re.compile(r'\uff3d'), ']'),
+    (re.compile(r'｛'), '{'),
+    (re.compile(r'｝'), '}'),
+    (re.compile(r'〈'), '<'),
+    (re.compile(r'〉'), '>'),
+    (re.compile(r'\(\s*\)\s*'), ' '),
+    (re.compile(r'\[\s*\]\s*'), ' '),
+    (re.compile(r'\{\s*\}\s*'), ' '),
+    (re.compile(r'\<\s*\>\s*'), ' '),
+    (re.compile(r'\s{2,}'), ' '),
+    (re.compile(r'【(?![々〇〈〉《》「」『』【】〔〕］［])([^【】]+)】'), r'[\1]'),
+    (re.compile(r'（(?![々〇〈〉《》「」『』【】〔〕］［])([^（）]+)）'), r'(\1)'),
+    (re.compile(r'【(.*?)】'), r'[\1]'),
+    (re.compile(r'（(.*?)）'), r'(\1)'),
+    (re.compile(r'［(.*?)］'), r'[\1]'),
+    (re.compile(r'〈(.*?)〉'), r'<\1>'),
+    (re.compile(r'｛(.*?)｝'), r'{\1}'),
+    (re.compile(r'(单行本)'), ''),
+    (re.compile(r'(同人志)'), ''),
+    (re.compile(r'\{(.*?)\}'), ''),
+    (re.compile(r'\{\d+w\}'), ''),
+    (re.compile(r'\{\d+p\}'), ''),
+    (re.compile(r'\{\d+px\}'), ''),
+    (re.compile(r'\(\d+px\)'), ''),
+    (re.compile(r'\{\d+de\}'), ''),
+    (re.compile(r'\[cbr\]'), ''),
+    (re.compile(r'\{\d+\.?\d*[kKwW]?@PX\}'), ''),
+    (re.compile(r'\{\d+\.?\d*[kKwW]?@WD\}'), ''),
+    (re.compile(r'\{\d+%?@DE\}'), ''),
+    (re.compile(r'\[multi\]'), ''),
+    (re.compile(r'\[trash\]'), ''),
+    (re.compile(r'\[multi\-main\]'), ''),
+    (_SAMENAME_PATTERN, ''),
+    (_TRAILING_COUNTER_PATTERN, ''),
+]
+_ADVANCED_REPLACEMENTS = [
+    (re.compile(r'Digital'), 'DL'),
+    (re.compile(r'\[(\d{4})\.(\d{2})\]'), r'(\1.\2)'),
+    (re.compile(r'\((\d{4})年(\d{1,2})月\)'), r'(\1.\2)'),
+    (re.compile(r'Fate.*Grand.*Order'), 'FGO'),
+    (re.compile(r'艦隊これくしょん.*-.*艦これ.*-'), '舰C'),
+    (re.compile(r'PIXIV FANBOX'), 'FANBOX'),
+    (re.compile(r'\((MJK[^\)]+)\)'), ''),
+    (re.compile(r'^\) '), ''),
+    (re.compile(r'ibm5100'), ''),
+    (re.compile(r'20(\d+)年(\d+)月号'), r'\1-\2'),
+    (re.compile(r'(单行本)'), ''),
+    (re.compile(r'^／\s{1,6}'), ''),
+]
+_PREFIX_PRIORITY_PATTERNS = [
+    re.compile(r'(\d{4}\.\d{2})'),
+    re.compile(r'(\d{4}年\d{1,2}月)'),
+    re.compile(r'(\d{2}\.\d{2})'),
+    re.compile(r'(?<!\d)(\d{4})(?!\d)'),
+    re.compile(r'(\d{2}\-\d{2})'),
+    re.compile(r'(C\d+)'),
+    re.compile(r'(COMIC1☆\d+)'),
+    re.compile(r'(例大祭\d*)'),
+    re.compile(r'(FF\d+)'),
+    re.compile(r'([^()]*)COMIC[^()]*'),
+    re.compile(r'([^()]*)快楽天[^()]*'),
+    re.compile(r'([^()]*)Comic[^()]*'),
+    re.compile(r'([^()]*)VOL[^()]*'),
+    re.compile(r'([^()]*)永遠娘[^()]*'),
+    re.compile(r'・'),
+    re.compile(r'(.*?\d+.*?)'),
+]
+_SUFFIX_KEYWORD_PATTERNS = [
+    re.compile(r'漢化'),
+    re.compile(r'汉化'),
+    re.compile(r'翻訳'),
+    re.compile(r'无修'),
+    re.compile(r'無修'),
+    re.compile(r'DL版'),
+    re.compile(r'掃圖'),
+    re.compile(r'翻譯'),
+    re.compile(r'Digital'),
+    re.compile(r'製作'),
+    re.compile(r'重嵌'),
+    re.compile(r'CG集'),
+    re.compile(r'掃'),
+    re.compile(r'制作'),
+    re.compile(r'排序 '),
+    re.compile(r'截止'),
+    re.compile(r'去码'),
+    re.compile(r'^\s*[\d\.\-+\s]*\d+[\d\.\-+\s]*[pPvVmMbBgGnN][\s\d\.\-+\s pPvVmMbBgGnN]*$'),
+    re.compile(r'\d+[GMK]B'),
+]
 
 def detect_and_decode_filename(filename):
     """
@@ -61,9 +163,9 @@ def normalize_filename(filename):
     # 移除扩展名
     base = os.path.splitext(filename)[0]
     # 移除[samename_n]标记 (旧格式)
-    base = re.sub(r'\[samename_\d+\]', '', base)
+    base = _SAMENAME_PATTERN.sub('', base)
     # 移除 (n) 后缀 (新格式，仅匹配文件名末尾的数字括号)
-    base = re.sub(r'\s\(\d+\)$', '', base)
+    base = _TRAILING_COUNTER_PATTERN.sub('', base)
     # 移除所有空格并转换为小写
     normalized = ''.join(base.split()).lower()
     return normalized
@@ -368,145 +470,20 @@ def get_unique_filename(directory, filename, artist_name, is_excluded=False, exi
         filename = f"{base}{ext}"
         return get_unique_filename_with_samename(directory, filename, existing_names=existing_names, normalized_cache=normalized_cache)
 
-    # 修改正则替换模式，更谨慎地处理日文字符
-    basic_patterns = [
-        # 统一处理各种括号为英文半角括号
-        (r'（', '('),
-        (r'）', ')'),
-        (r'\uff08', '('),  # 全角左括号的 Unicode
-        (r'\uff09', ')'),  # 全角右括号的 Unicode
-        # 统一处理各种方括号为英文半角方括号
-        (r'【', '['),
-        (r'】', ']'),
-        (r'［', '['),
-        (r'］', ']'),
-        (r'\uff3b', '['),  # 全角左方括号的 Unicode
-        (r'\uff3d', ']'),  # 全角右方括号的 Unicode
-        # 统一处理花括号
-        (r'｛', '{'),
-        (r'｝', '}'),
-        (r'〈', '<'),
-        (r'〉', '>'),
-        # 清理空括号和空方框（包括可能的空格）
-        (r'\(\s*\)\s*', r' '),  # 清理空括号
-        (r'\[\s*\]\s*', r' '),  # 清理空方框
-        (r'\{\s*\}\s*', r' '),  # 清理空花括号
-        (r'\<\s*\>\s*', r' '),  # 清理空尖括号
-        # 只处理两个及以上的连续空格
-        (r'\s{2,}', r' '),
-        # 修改可能导致问题的替换模式
-        (r'【(?![々〇〈〉《》「」『』【】〔〕］［])([^【】]+)】', r'[\1]'),
-        (r'（(?![々〇〈〉《》「」『』【】〔〕］［])([^（）]+)）', r'(\1)'),
-        (r'【(.*?)】', r'[\1]'),
-        (r'（(.*?)）', r'(\1)'),
-        (r'［(.*?)］', r'[\1]'),
-        (r'〈(.*?)〉', r'<\1>'),
-        (r'｛(.*?)｝', r'{\1}'),
-        # 其他清理规则
-        (r'(单行本)', r''),
-        (r'(同人志)', r''),
-        (r'\{(.*?)\}', r''),
-        (r'\{\d+w\}', r''),
-        (r'\{\d+p\}', r''),
-        (r'\{\d+px\}', r''),
-        (r'\(\d+px\)', r''),
-        (r'\{\d+de\}', r''),
-        (r'\[cbr\]', r''),
-        (r'\{\d+\.?\d*[kKwW]?@PX\}', r''),  # 匹配如 {1.8k@PX}、{215@PX}
-        (r'\{\d+\.?\d*[kKwW]?@WD\}', r''),  # 匹配如 {1800w@WD}、{1.8k@WD}
-        (r'\{\d+%?@DE\}', r''),  
-        # 匹配如 {85%@DE}
-        (r'\[multi\]', r''),
-        (r'\[trash\]', r''),
-        # 清理samename标记，以便重新添加
-        (r'\[multi\-main\]', r''),
-        (r'\[samename_\d+\]', r''),
-        (r'\s\(\d+\)$', r''),
-        # (r'\d{5,6}\.', r''),
-    ]
-    
-    advanced_patterns = [
-        (r'Digital', 'DL'),
-        # 标准化日期格式
-        (r'\[(\d{4})\.(\d{2})\]', r'(\1.\2)'),
-        (r'\((\d{4})年(\d{1,2})月\)', r'(\1.\2)'),
-        # 标准化C编号格式
-        (r'Fate.*Grand.*Order', 'FGO'),
-        (r'艦隊これくしょん.*-.*艦これ.*-', '舰C'),
-        (r'PIXIV FANBOX', 'FANBOX'),
-        (r'\((MJK[^\)]+)\)', ''),
-        (r'^\) ', ''),
-        (r'ibm5100', ''),
-        (r'20(\d+)年(\d+)月号', r'\1-\2'),
-        (r'(单行本)', r''),
-        (r'^／\s{1,6}', ''),
-    ]
-
-    prefix_priority = [
-        # 日期格式优先 方便排序
-        r'(\d{4}\.\d{2})',  # 标准化后的年月格式
-        r'(\d{4}年\d{1,2}月)',  # 日文年月格式
-        r'(\d{2}\.\d{2})',
-        r'(?<!\d)(\d{4})(?!\d)',
-        r'(\d{2}\-\d{2})',
-        # 优先处理同人志编号
-        r'(C\d+)',
-        r'(COMIC1☆\d+)',
-        r'(例大祭\d*)',
-        r'(FF\d+)',
-        # 日期格式
-        # 其他格式
-        r'([^()]*)COMIC[^()]*',
-        r'([^()]*)快楽天[^()]*',
-        r'([^()]*)Comic[^()]*',
-        r'([^()]*)VOL[^()]*',
-        r'([^()]*)永遠娘[^()]*',
-        r'・',                # 包含中点的名称通常是系列名/作品名
-        r'(.*?\d+.*?)',
-    ]
-
-    suffix_keywords = [
-        r'漢化',                # 日语的 "汉"
-        r'汉化',              # 汉化
-        r'翻訳',              # 翻译
-        r'无修',              # 无修正
-        r'無修',              # 日语的 "无修正"
-        r'DL版',              # 下载版
-        r'掃圖',              # 扫图
-        r'翻譯',              # 翻译 (繁体字)
-        r'Digital',           # 数字版
-        r'製作',              # 制作
-        r'重嵌',              # 重新嵌入
-        r'CG集',              # CG 集合
-        r'掃', 
-        r'制作', 
-        r'排序 ', 
-        r'截止',
-        r'去码',
-        
-        # 纯数字及其组合（带单位/数量）作为前缀时，改为后缀
-        # 匹配：(10P), (57.1M), (10P-126.5M), ( 10P ) 等
-        r'^\s*[\d\.\-+\s]*\d+[\d\.\-+\s]*[pPvVmMbBgGnN][\s\d\.\-+\s pPvVmMbBgGnN]*$',
-        r'\d+[GMK]B',         # 文件大小信息（如123MB、45KB等）
-    ]
-
     # 应用基本替换规则
-    for pattern, replacement in basic_patterns:
-        base = re.sub(pattern, replacement, base)
+    for pattern, replacement in _BASIC_REPLACEMENTS:
+        base = pattern.sub(replacement, base)
 
     # 对非排除文件夹应用高级替换规则
-    for pattern, replacement in advanced_patterns:
-        base = re.sub(pattern, replacement, base)
+    for pattern, replacement in _ADVANCED_REPLACEMENTS:
+        base = pattern.sub(replacement, base)
 
     # 以下是非排除文件夹的处理逻辑
-    pattern_brackets = re.compile(r'\[([^\[\]]+)\]')
-    pattern_parentheses = re.compile(r'\(([^\(\)]+)\)')
-    
     # 提取方括号和圆括号中的内容
-    group1 = pattern_brackets.findall(base)  # 找到所有方括号内容
-    group3 = pattern_brackets.sub('', base)  # 移除所有方括号内容
-    group2 = pattern_parentheses.findall(group3)  # 找到所有圆括号内容
-    group3 = pattern_parentheses.sub('', group3).strip()  # 移除所有圆括号内容并去除首尾空格
+    group1 = _BRACKET_CONTENT_PATTERN.findall(base)
+    group3 = _BRACKET_CONTENT_PATTERN.sub('', base)
+    group2 = _PAREN_CONTENT_PATTERN.findall(group3)
+    group3 = _PAREN_CONTENT_PATTERN.sub('', group3).strip()
     
     # 将 group1 和 group2 组合为一个完整的列表
     all_groups = group1 + group2
@@ -530,14 +507,14 @@ def get_unique_filename(directory, filename, artist_name, is_excluded=False, exi
     
     # 处理后缀
     for element in remaining_elements[:]:  # 使用切片创建副本进行迭代
-        if any(re.search(kw, element) for kw in suffix_keywords):
-            for i, pattern in enumerate(prefix_priority):
-                if re.search(pattern, element):
+        if any(pattern.search(element) for pattern in _SUFFIX_KEYWORD_PATTERNS):
+            for i, pattern in enumerate(_PREFIX_PRIORITY_PATTERNS):
+                if pattern.search(element):
                     suffix_candidates.append((element, i))
                     remaining_elements.remove(element)
                     break
             else:
-                suffix_candidates.append((element, len(prefix_priority)))
+                suffix_candidates.append((element, len(_PREFIX_PRIORITY_PATTERNS)))
                 remaining_elements.remove(element)
     
     # 处理前缀
@@ -557,8 +534,8 @@ def get_unique_filename(directory, filename, artist_name, is_excluded=False, exi
             matched = True
         else:
             # 如果不是同时包含，按原有逻辑处理
-            for i, pattern in enumerate(prefix_priority):
-                if re.search(pattern, element):
+            for i, pattern in enumerate(_PREFIX_PRIORITY_PATTERNS):
+                if pattern.search(element):
                     prefix_candidates.append((element, i))
                     remaining_elements.remove(element)
                     matched = True

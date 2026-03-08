@@ -17,6 +17,49 @@ class ArchiveIDHandler:
     
     # 缓存已读取的注释，避免重复读取
     _comment_cache: dict[str, Optional[str]] = {}
+    _bandizip_executable: Optional[str] = None
+    _bandizip_checked = False
+    _seven_zip_executable: Optional[str] = None
+    _seven_zip_checked = False
+
+    @staticmethod
+    def _find_bandizip_executable() -> Optional[str]:
+        if ArchiveIDHandler._bandizip_checked:
+            return ArchiveIDHandler._bandizip_executable
+
+        candidates = [
+            r"D:\1Repo\Soft\bz\Bandizip\bz.exe",
+            "bz.exe",
+            r"C:\Program Files\Bandizip\bz.exe",
+            r"C:\Program Files (x86)\Bandizip\bz.exe",
+        ]
+        for candidate in candidates:
+            if os.path.isabs(candidate):
+                if os.path.exists(candidate):
+                    ArchiveIDHandler._bandizip_executable = candidate
+                    break
+            else:
+                resolved = shutil.which(candidate)
+                if resolved:
+                    ArchiveIDHandler._bandizip_executable = resolved
+                    break
+
+        ArchiveIDHandler._bandizip_checked = True
+        return ArchiveIDHandler._bandizip_executable
+
+    @staticmethod
+    def _find_seven_zip_executable() -> Optional[str]:
+        if ArchiveIDHandler._seven_zip_checked:
+            return ArchiveIDHandler._seven_zip_executable
+
+        for candidate in ("7z", "7za", "7zr"):
+            resolved = shutil.which(candidate)
+            if resolved:
+                ArchiveIDHandler._seven_zip_executable = resolved
+                break
+
+        ArchiveIDHandler._seven_zip_checked = True
+        return ArchiveIDHandler._seven_zip_executable
     
     @staticmethod
     def generate_id() -> str:
@@ -47,20 +90,7 @@ class ArchiveIDHandler:
         try:
             # 方法1: 使用 bz.exe 读取（如果是ZIP文件）
             if archive_path.lower().endswith('.zip'):
-                # 尝试多个可能的 bz.exe 路径 (优先使用用户提供的路径)
-                bz_paths = [
-                    r"D:\1Repo\Soft\bz\Bandizip\bz.exe",  # 用户指定路径
-                    r"bz.exe",  # 环境变量中的
-                    r"C:\Program Files\Bandizip\bz.exe",
-                    r"C:\Program Files (x86)\Bandizip\bz.exe"
-                ]
-                
-                bz_exe = None
-                for path in bz_paths:
-                    if path == "bz.exe" or os.path.exists(path):
-                        bz_exe = path
-                        break
-                
+                bz_exe = ArchiveIDHandler._find_bandizip_executable()
                 if bz_exe:
                     logger.debug(f"🔍 找到 Bandizip: {bz_exe}")
                     try:
@@ -105,8 +135,13 @@ class ArchiveIDHandler:
                     logger.debug(f"未找到可用 bz.exe，跳过读取: {archive_path}")
             
             # 方法2: 回退到7z（用于其他格式的压缩包）
+            seven_zip = ArchiveIDHandler._find_seven_zip_executable()
+            if not seven_zip:
+                ArchiveIDHandler._comment_cache[archive_path] = None
+                return None
+
             result = subprocess.run(
-                ['7z', 'l', '-slt', archive_path],
+                [seven_zip, 'l', '-slt', archive_path],
                 capture_output=True,
                 text=True,
                 encoding='utf-8',
@@ -159,47 +194,41 @@ class ArchiveIDHandler:
                 return False
             
             # 使用临时文件方式，强制UTF-8编码
-            bandizip_commands = [
-                r"D:\1Repo\Soft\bz\Bandizip\bz.exe",
-                r"bz.exe",
-                r"C:\Program Files\Bandizip\bz.exe",
-                r"C:\Program Files (x86)\Bandizip\bz.exe"
-            ]
-            
-            for cmd in bandizip_commands:
+            cmd = ArchiveIDHandler._find_bandizip_executable()
+            if not cmd:
+                logger.warning(f"未找到可用的Bandizip命令，无法设置注释: {archive_path}")
+                return False
+
+            try:
+                # 创建UTF-8编码的临时注释文件
+                with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', delete=False, suffix='.txt') as f:
+                    f.write(comment)
+                    comment_file = f.name
+
                 try:
-                    # 创建UTF-8编码的临时注释文件
-                    with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', delete=False, suffix='.txt') as f:
-                        f.write(comment)
-                        comment_file = f.name
-                    
+                    result = subprocess.run(
+                        [cmd, 'a', '-y', f'-cmtfile:{comment_file}', archive_path],
+                        capture_output=True,
+                        text=True,
+                        encoding='utf-8'
+                    )
+
+                    if result.returncode == 0:
+                        logger.debug(f"🔍 使用 {cmd} 成功设置压缩包注释: {archive_path}")
+                        return True
+
+                    logger.debug(f"{cmd}文件方式设置注释失败: {result.stderr}")
+                    return False
+                finally:
                     try:
-                        result = subprocess.run(
-                            [cmd, 'a', '-y', f'-cmtfile:{comment_file}', archive_path],
-                            capture_output=True,
-                            text=True,
-                            encoding='utf-8'
-                        )
-                        
-                        if result.returncode == 0:
-                            logger.debug(f"🔍 使用 {cmd} 成功设置压缩包注释: {archive_path}")
-                            return True
-                        else:
-                            logger.debug(f"{cmd}文件方式设置注释失败: {result.stderr}")
-                            
-                    finally:
-                        # 清理临时文件
-                        try:
-                            os.unlink(comment_file)
-                        except:
-                            pass
-                            
-                except FileNotFoundError:
-                    logger.debug(f"{cmd}未找到，跳过")
-                    continue
-                    
-            logger.warning(f"未找到可用的Bandizip命令，无法设置注释: {archive_path}")
-            return False
+                        os.unlink(comment_file)
+                    except Exception:
+                        pass
+            except FileNotFoundError:
+                ArchiveIDHandler._bandizip_executable = None
+                ArchiveIDHandler._bandizip_checked = True
+                logger.warning(f"未找到可用的Bandizip命令，无法设置注释: {archive_path}")
+                return False
                     
         except Exception as e:
             logger.error(f"设置压缩包注释失败 {archive_path}: {e}")

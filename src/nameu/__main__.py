@@ -13,7 +13,6 @@ sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 # 导入自定义模块
 from nameu.core.logger_config import setup_logger
-from nameu.core.constants import ARCHIVE_EXTENSIONS
 from nameu.core.file_processor import (
     process_artist_folder, process_folders, record_folder_timestamps,
     restore_folder_timestamps, get_artist_name
@@ -189,7 +188,7 @@ def _run(args: argparse.Namespace) -> int:
     print(f"{Fore.CYAN}正在处理画师文件夹: {os.path.basename(artist_path)}{Style.RESET_ALL}")
     if args.keep_timestamp:
         older_timestamps = record_folder_timestamps(artist_path)
-    modified_files_count = process_artist_folder(
+    modified_files_count, total_files = process_artist_folder(
         artist_path,
         artist_name,
         add_artist_name_enabled,
@@ -199,10 +198,6 @@ def _run(args: argparse.Namespace) -> int:
     )
     if args.keep_timestamp:
         restore_folder_timestamps(older_timestamps)
-    total_files = sum(
-        len([f for f in files if f.lower().endswith(ARCHIVE_EXTENSIONS)])
-        for _, _, files in os.walk(artist_path)
-    )
     print(f"\n{Fore.GREEN}处理完成:{Style.RESET_ALL}")
     print(f"- 扫描了 {total_files} 个压缩文件")
     if modified_files_count > 0:
