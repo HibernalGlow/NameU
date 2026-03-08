@@ -8,7 +8,7 @@
 """
 import os
 import threading
-from typing import Deque, Dict, List, Optional, Set
+from typing import Dict, List, Optional, Set
 from enum import Enum, auto
 from collections import deque
 from rich.tree import Tree
@@ -16,7 +16,6 @@ from rich.live import Live
 from rich.console import Console, Group
 from rich.panel import Panel
 from rich.text import Text
-from rich.columns import Columns
 from rich.progress import (
     Progress, 
     SpinnerColumn, 
@@ -28,10 +27,9 @@ from rich.progress import (
 )
 
 # === 配置常量 ===
-MAX_FILES_PER_DIR = 3
-MAX_VISIBLE_DIRS = 6
-MAX_VISIBLE_FAILED_DIRS = 2
-MAX_RECENT_RENAMES = 8
+MAX_FILES_PER_DIR = 5       # 每个目录最多显示的文件数
+MAX_RECENT_COMPLETED = 3    # 已完成文件中最多保留显示的数量
+SHOW_PROCESSING_FIRST = True # 优先显示正在处理的文件
 
 class FileStatus(Enum):
     PENDING = auto()
@@ -61,11 +59,6 @@ class ProgressManager:
         # 统计信息
         self.total_count = 0
         self.completed_count = 0
-        self.failed_count = 0
-        self.processing_count = 0
-        self.renamed_count = 0
-        self.recent_renames: Deque[dict] = deque(maxlen=MAX_RECENT_RENAMES)
-        self.render_tick = 0
         
         # 参考 repacku 样式的进度条
         self.progress = Progress(
@@ -91,6 +84,7 @@ class ProgressManager:
             
         from loguru import logger
         try:
+            logger.remove()
             self.log_handler_id = logger.add(
                 lambda msg: self.console.print(msg, end=""),
                 format="{message}",
@@ -120,13 +114,9 @@ class ProgressManager:
 
     def _build_display(self):
         """构建智能树形显示"""
-        self.render_tick += 1
-        summary = self._build_summary_panel()
         tree = Tree("📁 [bold blue]NameU 处理进度[/bold blue]")
-
-        visible_dirs = self._get_visible_directories()
-
-        for dir_path in visible_dirs:
+        
+        for dir_path in self.dir_order:
             files = self.directories.get(dir_path, set())
             if not files:
                 continue
@@ -153,90 +143,51 @@ class ProgressManager:
             total_in_dir = len(files)
             done_count = len(done) + len(failed)
             
-            dir_node = tree.add(f"📁 [blue]{dir_name}[/blue] ({done_count}/{total_in_dir})")
-
-            files_to_show: List[tuple] = []
-            for fp in processing:
-                files_to_show.append((fp, FileStatus.PROCESSING))
-            for fp in failed:
-                if len(files_to_show) < MAX_FILES_PER_DIR:
+            # 目录节点：显示进度概览
+            if done_count == total_in_dir:
+                # 全部完成，折叠显示
+                fail_text = f" [red]({len(failed)} 失败)[/red]" if failed else ""
+                dir_node = tree.add(f"📁 [green]{dir_name}[/green] ✅ {done_count}/{total_in_dir}{fail_text}")
+            else:
+                # 正在处理中
+                dir_node = tree.add(f"📁 [blue]{dir_name}[/blue] ({done_count}/{total_in_dir})")
+                
+                # 智能选择要显示的文件
+                files_to_show: List[tuple] = []  # (path, status)
+                
+                # 1. 优先显示正在处理的
+                for fp in processing:
+                    files_to_show.append((fp, FileStatus.PROCESSING))
+                
+                # 2. 显示失败的（重要）
+                for fp in failed:
                     files_to_show.append((fp, FileStatus.FAILED))
-            remaining_slots = MAX_FILES_PER_DIR - len(files_to_show)
-            if remaining_slots > 0:
-                for fp in pending[:remaining_slots]:
-                    files_to_show.append((fp, FileStatus.PENDING))
-
-            for fp, st in files_to_show:
-                name = os.path.basename(fp)
-                icon, style = self._get_status_style(st)
-                dir_node.add(f"{icon} [{style}]{name}[/{style}]")
-
-            hidden_count = total_in_dir - len(files_to_show)
-            if hidden_count > 0:
-                dir_node.add(f"[dim]... 还有 {hidden_count} 个文件[/dim]")
+                
+                # 3. 如果还有空位，显示最近完成的
+                remaining_slots = MAX_FILES_PER_DIR - len(files_to_show)
+                if remaining_slots > 0:
+                    for fp in done[-MAX_RECENT_COMPLETED:]:
+                        if len(files_to_show) < MAX_FILES_PER_DIR:
+                            files_to_show.append((fp, FileStatus.DONE))
+                
+                # 4. 如果还有空位，显示待处理的
+                remaining_slots = MAX_FILES_PER_DIR - len(files_to_show)
+                if remaining_slots > 0:
+                    for fp in pending[:remaining_slots]:
+                        files_to_show.append((fp, FileStatus.PENDING))
+                
+                # 渲染文件节点
+                for fp, st in files_to_show:
+                    name = os.path.basename(fp)
+                    icon, style = self._get_status_style(st)
+                    dir_node.add(f"{icon} [{style}]{name}[/{style}]")
+                
+                # 如果有隐藏的文件，显示省略信息
+                hidden_count = total_in_dir - len(files_to_show)
+                if hidden_count > 0:
+                    dir_node.add(f"[dim]... 还有 {hidden_count} 个文件[/dim]")
         
-        recent = self._build_recent_panel()
-        top = Columns([summary, recent], equal=True, expand=True)
-        return Group(top, tree, self.progress)
-
-    def _build_summary_panel(self):
-        pending_count = max(0, self.total_count - self.completed_count - self.processing_count)
-        lines = [f"[bold cyan]文件[/bold cyan] {self.completed_count}/{self.total_count}"]
-        stats = [f"[yellow]{self.processing_count} 处理中[/yellow]"]
-        if pending_count:
-            stats.append(f"[white]{pending_count} 待处理[/white]")
-        if self.failed_count:
-            stats.append(f"[red]{self.failed_count} 失败[/red]")
-        if self.renamed_count:
-            stats.append(f"[magenta]{self.renamed_count} 改名[/magenta]")
-        lines.append("  ".join(stats))
-        return Panel("\n".join(lines), title="摘要", border_style="cyan")
-
-    def _build_recent_panel(self):
-        if not self.recent_renames:
-            body = "[dim]暂无重命名预览[/dim]"
-        else:
-            lines = []
-            for item in list(self.recent_renames)[-MAX_RECENT_RENAMES:]:
-                suffix = " [yellow][重名避让][/yellow]" if item["duplicate"] else ""
-                lines.append(f"[dim]{item['old']}[/dim]\n→ [green]{item['new']}[/green]{suffix}")
-            body = "\n".join(lines)
-        return Panel(body, title="最近改名", border_style="magenta")
-
-    def _get_visible_directories(self) -> List[str]:
-        active_dirs: List[str] = []
-        failed_dirs: List[str] = []
-
-        for dir_path in self.dir_order:
-            files = self.directories.get(dir_path, set())
-            if not files:
-                continue
-
-            has_failed = False
-            all_completed = True
-            for fp in files:
-                status = self.file_status.get(fp, FileStatus.PENDING)
-                if status == FileStatus.FAILED:
-                    has_failed = True
-                if status not in (FileStatus.DONE, FileStatus.SKIPPED, FileStatus.FAILED):
-                    all_completed = False
-
-            if not all_completed:
-                active_dirs.append(dir_path)
-            elif has_failed:
-                failed_dirs.append(dir_path)
-
-        visible_active = self._rotate_list(active_dirs, MAX_VISIBLE_DIRS)
-        visible_failed = failed_dirs[-MAX_VISIBLE_FAILED_DIRS:]
-        return visible_active + visible_failed
-
-    def _rotate_list(self, items: List[str], limit: int) -> List[str]:
-        if len(items) <= limit:
-            return items
-
-        start = (self.render_tick // 4) % len(items)
-        ordered = items[start:] + items[:start]
-        return ordered[:limit]
+        return Group(tree, self.progress)
 
     def _get_status_style(self, status: FileStatus) -> tuple:
         """返回状态对应的图标和样式"""
@@ -277,17 +228,10 @@ class ProgressManager:
         with self.lock:
             old_status = self.file_status.get(file_path)
             self.file_status[file_path] = status
-
-            if old_status == FileStatus.PROCESSING and status != FileStatus.PROCESSING:
-                self.processing_count = max(0, self.processing_count - 1)
-            elif old_status != FileStatus.PROCESSING and status == FileStatus.PROCESSING:
-                self.processing_count += 1
             
             if status in [FileStatus.DONE, FileStatus.SKIPPED, FileStatus.FAILED]:
                 if old_status in [FileStatus.PENDING, FileStatus.PROCESSING]:
                     self.completed_count += 1
-                    if status == FileStatus.FAILED:
-                        self.failed_count += 1
                     if self.main_task is not None:
                         self.progress.update(
                             self.main_task, 
@@ -296,19 +240,6 @@ class ProgressManager:
                         )
             
             # 触发 Live 刷新
-            if self.live:
-                self.live.update(self._build_display())
-
-    def record_rename(self, old_name: str, new_name: str, duplicate: bool = False):
-        with self.lock:
-            self.renamed_count += 1
-            self.recent_renames.append(
-                {
-                    "old": old_name,
-                    "new": new_name,
-                    "duplicate": duplicate,
-                }
-            )
             if self.live:
                 self.live.update(self._build_display())
 
