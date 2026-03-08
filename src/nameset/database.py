@@ -23,6 +23,9 @@ class ArchiveDatabase:
             db_path: 数据库文件路径
         """
         self.db_path = db_path
+        self._archive_info_cache: Dict[str, Optional[Dict[str, Any]]] = {}
+        self._hash_cache: Dict[str, Optional[str]] = {}
+        self._name_search_cache: Dict[tuple[str, Optional[str]], List[Dict[str, Any]]] = {}
         self._init_database()
     
     def __enter__(self):
@@ -35,8 +38,9 @@ class ArchiveDatabase:
     
     def close(self):
         """关闭数据库连接"""
-        # SQLite使用的是临时连接，无需特殊处理
-        pass
+        self._archive_info_cache.clear()
+        self._hash_cache.clear()
+        self._name_search_cache.clear()
     
     def _init_database(self):
         """初始化数据库表结构"""
@@ -156,13 +160,18 @@ class ArchiveDatabase:
         Returns:
             Optional[str]: 压缩包ID，未找到返回None
         """
+        if file_hash in self._hash_cache:
+            return self._hash_cache[file_hash]
+
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute('''
                 SELECT id FROM archive_info WHERE file_hash = ?
             ''', (file_hash,))
             result = cursor.fetchone()
-            return result[0] if result else None
+            archive_id = result[0] if result else None
+            self._hash_cache[file_hash] = archive_id
+            return archive_id
     
     def find_archive_by_name(self, name: str, artist_name: Optional[str] = None) -> List[Dict[str, Any]]:
         """
@@ -175,6 +184,10 @@ class ArchiveDatabase:
         Returns:
             List[Dict[str, Any]]: 匹配的记录列表
         """
+        cache_key = (name, artist_name)
+        if cache_key in self._name_search_cache:
+            return list(self._name_search_cache[cache_key])
+
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             
@@ -196,7 +209,7 @@ class ArchiveDatabase:
             cursor.execute(base_query, params)
             results = cursor.fetchall()
             
-            return [
+            results_list = [
                 {
                     'id': row[0],
                     'current_name': row[1],
@@ -205,6 +218,8 @@ class ArchiveDatabase:
                 }
                 for row in results
             ]
+            self._name_search_cache[cache_key] = list(results_list)
+            return results_list
     
     def create_archive_record(self, archive_id: str, file_path: str, current_name: str, 
                             artist_name: Optional[str] = None) -> bool:
@@ -231,7 +246,19 @@ class ArchiveDatabase:
                 ''', (archive_id, file_path, file_hash, current_name, artist_name))
                 conn.commit()
                 
-            logger.info(f"创建压缩包记录: {archive_id} -> {current_name}")
+            self._archive_info_cache[archive_id] = {
+                'id': archive_id,
+                'file_path': file_path,
+                'file_hash': file_hash,
+                'current_name': current_name,
+                'artist_name': artist_name,
+                'created_at': None,
+                'updated_at': None,
+            }
+            if file_hash:
+                self._hash_cache[file_hash] = archive_id
+            self._name_search_cache.clear()
+            logger.debug(f"创建压缩包记录: {archive_id} -> {current_name}")
             return True
             
         except Exception as e:
@@ -283,7 +310,13 @@ class ArchiveDatabase:
 
                 conn.commit()
 
-            logger.info(f"更新压缩包名称: {archive_id} {old_name} -> {new_name}")
+            cached = self._archive_info_cache.get(archive_id)
+            if cached:
+                cached = dict(cached)
+                cached['current_name'] = new_name
+                self._archive_info_cache[archive_id] = cached
+            self._name_search_cache.clear()
+            logger.debug(f"更新压缩包名称: {archive_id} {old_name} -> {new_name}")
             return True
 
         except Exception as e:
@@ -530,6 +563,10 @@ class ArchiveDatabase:
         Returns:
             Optional[Dict[str, Any]]: 压缩包信息，未找到返回None
         """
+        if archive_id in self._archive_info_cache:
+            cached = self._archive_info_cache[archive_id]
+            return dict(cached) if cached else None
+
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute('''
@@ -540,9 +577,10 @@ class ArchiveDatabase:
             
             result = cursor.fetchone()
             if not result:
+                self._archive_info_cache[archive_id] = None
                 return None
             
-            return {
+            info = {
                 'id': result[0],
                 'file_path': result[1],
                 'file_hash': result[2],
@@ -551,6 +589,10 @@ class ArchiveDatabase:
                 'created_at': result[5],
                 'updated_at': result[6]
             }
+            self._archive_info_cache[archive_id] = info
+            if result[2]:
+                self._hash_cache[result[2]] = archive_id
+            return dict(info)
     
     def update_file_path(self, archive_id: str, new_path: str) -> bool:
         """
@@ -573,6 +615,12 @@ class ArchiveDatabase:
                 ''', (new_path, archive_id))
                 conn.commit()
                 
+            cached = self._archive_info_cache.get(archive_id)
+            if cached:
+                cached = dict(cached)
+                cached['file_path'] = new_path
+                self._archive_info_cache[archive_id] = cached
+            self._name_search_cache.clear()
             logger.debug(f"更新文件路径: {archive_id} -> {new_path}")
             return True
             

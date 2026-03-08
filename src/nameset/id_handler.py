@@ -330,7 +330,7 @@ class ArchiveIDHandler:
         
         # 设置注释
         if ArchiveIDHandler.set_archive_comment(archive_path, new_comment):
-            logger.info(f"创建新ID: {new_id} ({os.path.basename(archive_path)})")
+            logger.debug(f"创建新ID: {new_id} ({os.path.basename(archive_path)})")
             return new_id
         else:
             logger.error(f"无法设置压缩包注释: {archive_path}")

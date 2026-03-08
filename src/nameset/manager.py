@@ -63,7 +63,7 @@ class ArchiveIDManager:
         """
         try:
             current_name = os.path.basename(archive_path)
-            logger.info(f"开始处理压缩包重命名: {current_name} -> {new_name}")
+            logger.debug(f"开始处理压缩包重命名: {current_name} -> {new_name}")
             
             # 第1步：检查或创建压缩包ID
             archive_id = self._get_or_assign_archive_id(archive_path, artist_name)
@@ -76,7 +76,7 @@ class ArchiveIDManager:
             if current_name != new_name:
                 try:
                     os.rename(archive_path, new_path)
-                    logger.info(f"文件重命名成功: {current_name} -> {new_name}")
+                    logger.debug(f"文件重命名成功: {current_name} -> {new_name}")
                 except Exception as e:
                     logger.error(f"文件重命名失败: {e}")
                     return False, archive_id
@@ -106,7 +106,7 @@ class ArchiveIDManager:
             if success:
                 # 更新文件路径
                 self.db.update_file_path(archive_id, new_path)
-                logger.info(f"压缩包重命名处理完成: {archive_id}")
+                logger.debug(f"压缩包重命名处理完成: {archive_id}")
                 return True, archive_id
             else:
                 logger.error(f"更新数据库记录失败: {archive_id}")
@@ -145,14 +145,14 @@ class ArchiveIDManager:
             else:
                 # ID存在但数据库中没有记录，创建新记录
                 if self.db.create_archive_record(archive_id, archive_path, current_name, artist_name):
-                    logger.info(f"为现有ID创建数据库记录: {archive_id}")
+                    logger.debug(f"为现有ID创建数据库记录: {archive_id}")
                     return archive_id
         
         # 2. 尝试从数据库历史中匹配
         logger.debug(f"从数据库历史中匹配: {current_name}")
         archive_id = self._match_from_database_history(archive_path, current_name, artist_name)
         if archive_id:
-            logger.info(f"从数据库历史匹配到ID: {archive_id}")
+            logger.debug(f"从数据库历史匹配到ID: {archive_id}")
             # 更新压缩包注释
             ArchiveIDHandler.set_archive_comment(
                 archive_path, 
@@ -168,7 +168,7 @@ class ArchiveIDManager:
             ArchiveIDHandler.create_comment_with_id(new_id, {'artist_name': artist_name})
         ):
             if self.db.create_archive_record(new_id, archive_path, current_name, artist_name):
-                logger.info(f"分配新ID: {new_id}")
+                logger.debug(f"分配新ID: {new_id}")
                 return new_id
         
         logger.error(f"无法为压缩包分配ID: {archive_path}")
@@ -194,7 +194,7 @@ class ArchiveIDManager:
         if file_hash:
             archive_id = self.db.get_archive_id_by_hash(file_hash)
             if archive_id:
-                logger.info(f"通过文件哈希匹配到ID: {archive_id}")
+                logger.debug(f"通过文件哈希匹配到ID: {archive_id}")
                 # 更新文件路径
                 self.db.update_file_path(archive_id, archive_path)
                 return archive_id
@@ -206,7 +206,7 @@ class ArchiveIDManager:
         if matches:
             # 取第一个匹配结果（按更新时间排序）
             best_match = matches[0]
-            logger.info(f"通过文件名匹配到候选ID: {best_match['id']} (相似度较高)")
+            logger.debug(f"通过文件名匹配到候选ID: {best_match['id']} (相似度较高)")
             
             # 这里可以添加更复杂的匹配逻辑，比如编辑距离计算
             # 为了简单起见，直接返回第一个匹配

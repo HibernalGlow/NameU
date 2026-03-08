@@ -10,7 +10,8 @@ from .config import exclude_keywords, forbidden_artist_keywords, path_blacklist,
 from .filename_processor import (
     detect_and_decode_filename, get_unique_filename, get_unique_filename_with_samename,
     format_folder_name, has_artist_name, has_forbidden_keyword, convert_sensitive_words_to_pinyin,
-    check_sensitive_word, get_sensitive_words_in_filename, get_unique_filename_with_pinyin_conversion
+    check_sensitive_word, get_sensitive_words_in_filename, get_unique_filename_with_pinyin_conversion,
+    normalize_filename,
 )
 from .progress import init_progress, get_manager, FileStatus
 
@@ -34,8 +35,6 @@ else:
 
 def _scan_archive_entries(directory):
     """Scan archive files once and build reusable name caches."""
-    from .filename_processor import normalize_filename
-
     entries = []
     existing_names = set()
     normalized_cache = {}
@@ -132,11 +131,11 @@ def process_files_in_directory(directory, artist_name, add_artist_name_enabled=T
         
         # 检查是否含有敏感词，如果启用了敏感词转换，则将敏感词转换为拼音
         if convert_sensitive_enabled and check_sensitive_word(new_filename):
-            logger.info(f"文件名含有敏感词，开始转换为拼音: {new_filename}")
+            logger.debug(f"文件名含有敏感词，开始转换为拼音: {new_filename}")
             sensitive_words = get_sensitive_words_in_filename(new_filename)
-            logger.info(f"检测到的敏感词: {', '.join(sensitive_words)}")
+            logger.debug(f"检测到的敏感词: {', '.join(sensitive_words)}")
             new_filename = convert_sensitive_words_to_pinyin(new_filename)
-            logger.info(f"转换后的文件名: {new_filename}")
+            logger.debug(f"转换后的文件名: {new_filename}")
             
         # 只有在非排除文件夹、启用了画师名添加、不包含禁止关键词时才添加画师名
         if not is_excluded and not has_forbidden_keyword(directory) and add_artist_name_enabled and artist_name not in exclude_keywords and not has_artist_name(new_filename, artist_name):
@@ -181,7 +180,7 @@ def process_files_in_directory(directory, artist_name, add_artist_name_enabled=T
                         )
                         if created_id:
                             auto_ids_created += 1
-                            logger.info(f"为未改名文件补写ID: {os.path.basename(original_file_path)} -> {created_id}")
+                            logger.debug(f"为未改名文件补写ID: {os.path.basename(original_file_path)} -> {created_id}")
                             existing_id = created_id
                     
                     if existing_id and _manager:
@@ -261,7 +260,7 @@ def process_files_in_directory(directory, artist_name, add_artist_name_enabled=T
                         rel_new_path = new_file_path
                         
                     log_message = f"重命名: {rel_old_path} -> {rel_new_path}"
-                    logger.info(log_message)
+                    logger.debug(log_message)
                 except OSError as e:
                     # 检查是否是文件已存在错误 (WinError 183)
                     if e.winerror == 183 or "文件已存在" in str(e):
@@ -293,6 +292,16 @@ from threading import Lock
 _unique_name_lock = Lock()  # 仅在极端情况需要再计算唯一名时保护
 _conflict_records = []  # 记录冲突的文件路径
 _conflict_lock = Lock()  # 保护冲突记录列表
+
+
+def _resolve_parallelism(total_threads: int, artist_count: int) -> tuple[int, int]:
+    """Split a fixed thread budget between artist-level and file-level work."""
+    if total_threads <= 1 or artist_count <= 1:
+        return 1, max(1, total_threads)
+
+    outer_workers = min(artist_count, max(2, min(total_threads, 4)))
+    inner_threads = max(1, total_threads // outer_workers)
+    return outer_workers, inner_threads
 
 def _build_plan(directory, artist_name, add_artist_name_enabled, convert_sensitive_enabled, track_ids: bool = True, entries=None, existing_names=None, normalized_cache=None):
     """第一阶段：串行计算最终目标文件名 & 需要重命名的列表。
@@ -447,7 +456,7 @@ def process_files_in_directory_parallel(directory, artist_name, add_artist_name_
                 if ok:
                     modified += 1
                 bar.update(1)
-    logger.info(f"✅ 并行完成: {modified}/{total} (目录: {directory})")
+    logger.info(f"并行完成: {modified}/{total} (目录: {directory})")
     return modified
 
 def process_artist_folder(artist_path, artist_name, add_artist_name_enabled=True, convert_sensitive_enabled=True, threads: int = 1, track_ids: bool = True):
@@ -492,11 +501,11 @@ def process_artist_folder(artist_path, artist_name, add_artist_name_enabled=True
                     
                     # 检测目录名是否包含敏感词并转换
                     if convert_sensitive_enabled and check_sensitive_word(new_name):
-                        logger.info(f"目录名含有敏感词，开始转换为拼音: {new_name}")
+                        logger.debug(f"目录名含有敏感词，开始转换为拼音: {new_name}")
                         sensitive_words = get_sensitive_words_in_filename(new_name)
-                        logger.info(f"检测到的敏感词: {', '.join(sensitive_words)}")
+                        logger.debug(f"检测到的敏感词: {', '.join(sensitive_words)}")
                         new_name = convert_sensitive_words_to_pinyin(new_name)
-                        logger.info(f"转换后的目录名: {new_name}")
+                        logger.debug(f"转换后的目录名: {new_name}")
                     
                     if new_name != dir_name:
                         # 确保目录名唯一
@@ -557,6 +566,7 @@ def process_folders(base_path, add_artist_name_enabled=True, convert_sensitive_e
     total_modified = 0
     total_files = 0
     total_sensitive = 0
+    outer_workers, inner_threads = _resolve_parallelism(threads, len(artist_folders))
 
     # 逐个处理画师文件夹 (增加全局进度条)
     USE_TREE_UI = False  # 关闭文件树显示，使用简单进度条
@@ -565,24 +575,48 @@ def process_folders(base_path, add_artist_name_enabled=True, convert_sensitive_e
     try:
         # 当 USE_TREE_UI 为 False 时，tqdm 会显示标准进度条
         with tqdm(total=len(artist_folders), desc="总体进度", unit="folder", position=0, leave=True, ncols=0, disable=USE_TREE_UI) as gbar:
-            for folder in artist_folders:
-                try:
-                    artist_path = os.path.join(base_path, folder)
-                    artist_name = get_artist_name(base_path, artist_path)
-                    
-                    # 注册画师目录
-                    pm.add_directory(artist_path)
+            def _process_single_artist(folder_name):
+                artist_path = os.path.join(base_path, folder_name)
+                artist_name = get_artist_name(base_path, artist_path)
+                pm.add_directory(artist_path)
+                return folder_name, process_artist_folder(
+                    artist_path,
+                    artist_name,
+                    add_artist_name_enabled,
+                    convert_sensitive_enabled,
+                    threads=inner_threads,
+                    track_ids=track_ids,
+                )
 
-                    # 处理画师文件夹中的文件，并获取修改文件数量
-                    modified_files_count, scanned_files_count = process_artist_folder(artist_path, artist_name, add_artist_name_enabled, convert_sensitive_enabled, threads=threads, track_ids=track_ids)
-                    total_processed += 1
-                    total_modified += modified_files_count
-                    total_files += scanned_files_count
-                    
-                except Exception as e:
-                    logger.error(f"处理文件夹 {folder} 出错: {e}")
-                finally:
-                    gbar.update(1)
+            if outer_workers <= 1:
+                for folder in artist_folders:
+                    try:
+                        _, (modified_files_count, scanned_files_count) = _process_single_artist(folder)
+                        total_processed += 1
+                        total_modified += modified_files_count
+                        total_files += scanned_files_count
+                    except Exception as e:
+                        logger.error(f"处理文件夹 {folder} 出错: {e}")
+                    finally:
+                        gbar.update(1)
+            else:
+                logger.info(f"启用画师目录级并行: 外层 {outer_workers} 线程, 每目录内层 {inner_threads} 线程")
+                with ThreadPoolExecutor(max_workers=outer_workers) as executor:
+                    future_map = {
+                        executor.submit(_process_single_artist, folder): folder
+                        for folder in artist_folders
+                    }
+                    for future in as_completed(future_map):
+                        folder = future_map[future]
+                        try:
+                            _, (modified_files_count, scanned_files_count) = future.result()
+                            total_processed += 1
+                            total_modified += modified_files_count
+                            total_files += scanned_files_count
+                        except Exception as e:
+                            logger.error(f"处理文件夹 {folder} 出错: {e}")
+                        finally:
+                            gbar.update(1)
     finally:
         pm.stop()
     

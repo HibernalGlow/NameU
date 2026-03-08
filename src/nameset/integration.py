@@ -4,6 +4,7 @@ NameSet 集成模块
 """
 
 import os
+import threading
 from typing import Optional, Tuple
 from loguru import logger
 
@@ -13,6 +14,7 @@ from .id_handler import ArchiveIDHandler
 
 # 全局管理器实例
 _global_manager: Optional[ArchiveIDManager] = None
+_thread_local = threading.local()
 
 
 def get_manager() -> ArchiveIDManager:
@@ -26,6 +28,14 @@ def get_manager() -> ArchiveIDManager:
     if _global_manager is None:
         _global_manager = ArchiveIDManager()
     return _global_manager
+
+
+def get_thread_manager() -> ArchiveIDManager:
+    manager = getattr(_thread_local, "manager", None)
+    if manager is None:
+        manager = ArchiveIDManager()
+        _thread_local.manager = manager
+    return manager
 
 
 def process_file_with_id_tracking(file_path: str, new_name: str, artist_name: Optional[str] = None) -> bool:
@@ -46,16 +56,15 @@ def process_file_with_id_tracking(file_path: str, new_name: str, artist_name: Op
             logger.debug(f"跳过非压缩文件: {file_path}")
             return False
         
-        # 为每次调用创建独立的管理器实例
-        with ArchiveIDManager() as manager:
-            success, archive_id = manager.process_archive_rename(file_path, new_name, artist_name)
-            
-            if success and archive_id:
-                logger.info(f"文件处理成功: {new_name} (ID: {archive_id})")
-                return True
-            else:
-                logger.error(f"文件处理失败: {file_path}")
-                return False
+        manager = get_thread_manager()
+        success, archive_id = manager.process_archive_rename(file_path, new_name, artist_name)
+
+        if success and archive_id:
+            logger.debug(f"文件处理成功: {new_name} (ID: {archive_id})")
+            return True
+
+        logger.error(f"文件处理失败: {file_path}")
+        return False
                 
     except Exception as e:
         logger.error(f"处理文件时出错 {file_path}: {e}")
